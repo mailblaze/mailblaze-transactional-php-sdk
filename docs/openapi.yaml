@@ -1,0 +1,341 @@
+openapi: 3.1.0
+info:
+  title: Mail Blaze Transactional API
+  version: "1.0.0"
+  summary: Transactional email methods implemented by TransactionalController.
+  description: >
+    JSON requests must use Content-Type application/json with no charset parameter.
+    body, plain_text, and attachment data are strict base64. The attachment size
+    check measures the base64 string and rejects values longer than 10 MiB.
+    The Authorization header is the raw public API key.
+servers:
+  - url: https://control.mailblaze.com/api
+security:
+  - PublicKey: []
+paths:
+  /transactional:
+    post:
+      operationId: createTransactionalEmail
+      summary: Create a transactional email
+      description: >
+        Provide body or template_id. When template_id is set, the API merges
+        [A-Z0-9_] tags, including MAILBLAZE_PREHEADER, and base64-encodes the
+        result itself. Attachments may be sent with either body or template_id.
+        send_at is interpreted in the customer account timezone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransactionalEmailRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateResponse"
+        "400":
+          description: The request is not valid JSON, is not POST, or fails base64, template, or merge-tag checks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Sending is inactive, the from-domain is not verified, or the account is over quota.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: The template was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: send_at is invalid or the email could not be saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: The email was not sent because of an unhandled failure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      operationId: listTransactionalEmails
+      summary: List transactional emails
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          required: false
+          description: Clamped to the range 10 through 50. The default is 10.
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+      responses:
+        "200":
+          description: A page of emails. Code 050.001 means the list is empty.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListResponse"
+        "503":
+          description: The list could not be loaded. Code 150.008.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /transactional/{email_uid}:
+    get:
+      operationId: getTransactionalEmail
+      summary: Fetch one transactional email
+      parameters:
+        - $ref: "#/components/parameters/EmailUid"
+      responses:
+        "200":
+          description: The email record. body and plain_text are the stored content, not base64.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailResponse"
+        "404":
+          description: No email exists for that unique id. Code 150.009.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /transactional/attachments/{email_uid}:
+    get:
+      operationId: listTransactionalAttachments
+      summary: List attachment data for one transactional email
+      parameters:
+        - $ref: "#/components/parameters/EmailUid"
+      responses:
+        "200":
+          description: Attachment records stored for the email.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentListResponse"
+        "404":
+          description: No email exists for that unique id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  securitySchemes:
+    PublicKey:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: The Mail Blaze public API key, sent as the raw header value.
+  parameters:
+    EmailUid:
+      name: email_uid
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    TransactionalEmailRequest:
+      type: object
+      required: [to_email, to_name, from_email, from_name, subject]
+      properties:
+        to_email:
+          type: string
+          format: email
+        to_name:
+          type: string
+        from_email:
+          type: string
+          format: email
+        from_name:
+          type: string
+        reply_to_email:
+          type: string
+          format: email
+        reply_to_name:
+          type: string
+        cc:
+          type: string
+          description: One address, or several addresses joined with a comma.
+        bcc:
+          type: string
+          description: One address, or several addresses joined with a comma.
+        subject:
+          type: string
+        body:
+          type: string
+          description: Strict base64 of the HTML body. Required when template_id is omitted.
+        template_id:
+          type: string
+          description: Template unique id. Required when body is omitted.
+        merge_tags:
+          type: object
+          additionalProperties:
+            type: string
+          description: Values for [A-Z0-9_] tags in the template. MAILBLAZE_PREHEADER sets the preheader.
+        plain_text:
+          type: string
+          description: Strict base64 of the plain-text part. Required to be base64 when the caller supplies it (150.003).
+        category:
+          type: string
+        send_at:
+          type: string
+          description: Clock time interpreted in the customer timezone. The SDK sends Y-m-d\TH:i:s.
+          examples: ["2026-11-11T15:04:05"]
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attachment"
+    Attachment:
+      type: object
+      required: [name, data]
+      properties:
+        name:
+          type: string
+        data:
+          type: string
+          description: Strict base64. The API rejects a value whose byte length is greater than 10485760 (150.005).
+    CreateResponse:
+      type: object
+      required: [status, code, email_uid]
+      properties:
+        status:
+          const: success
+        code:
+          const: "000.000"
+        email_uid:
+          type: string
+        warning:
+          type: ["string", "null"]
+    ListResponse:
+      type: object
+      required: [status, code, data]
+      properties:
+        status:
+          const: success
+        code:
+          type: string
+          enum: ["000.000", "050.001"]
+        data:
+          type: object
+          properties:
+            count:
+              type: ["integer", "null"]
+            total_pages:
+              type: ["integer", "null"]
+            current_page:
+              type: ["integer", "null"]
+            next_page:
+              type: ["integer", "null"]
+            prev_page:
+              type: ["integer", "null"]
+            records:
+              type: array
+              items:
+                $ref: "#/components/schemas/EmailSummary"
+    EmailSummary:
+      type: object
+      properties:
+        email_uid:
+          type: string
+        to_email:
+          type: string
+        subject:
+          type: string
+        status:
+          type: string
+    EmailResponse:
+      type: object
+      required: [status, code, data]
+      properties:
+        status:
+          const: success
+        code:
+          const: "000.000"
+        data:
+          type: object
+          required: [record]
+          properties:
+            record:
+              $ref: "#/components/schemas/EmailRecord"
+    EmailRecord:
+      type: object
+      properties:
+        email_uid:
+          type: string
+        to_email:
+          type: string
+        to_name:
+          type: string
+        from_email:
+          type: string
+        from_name:
+          type: string
+        subject:
+          type: string
+        body:
+          type: ["string", "null"]
+        plain_text:
+          type: ["string", "null"]
+        category:
+          type: ["string", "null"]
+        send_at:
+          type: ["integer", "string", "null"]
+        status:
+          type: string
+    AttachmentListResponse:
+      type: object
+      required: [status, code, data]
+      properties:
+        status:
+          const: success
+        code:
+          const: "000.000"
+        data:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    Error:
+      type: object
+      required: [status, error]
+      properties:
+        status:
+          const: error
+        code:
+          type: string
+          description: >
+            100.001 only POST is allowed.
+            150.001 sending is inactive.
+            150.002 body is not valid base64.
+            150.003 plain_text is not valid base64.
+            150.004 attachment data is not valid base64.
+            150.005 attachment exceeds the 10MB base64 size limit.
+            150.006 send_at is not valid.
+            150.007 the email was not saved.
+            150.008 the list request failed.
+            150.009 the email uid was not found.
+            150.010 the from-domain is not verified.
+            150.011 the JSON body is invalid.
+            150.012 body or template_id is required.
+            150.013 the template was not found.
+            150.014 a template merge tag is missing.
+            150.015 the account does not have enough credits.
+            150.016 an unhandled send failure.
+        error:
+          type: string

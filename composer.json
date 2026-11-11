@@ -1,0 +1,61 @@
+{
+    "name": "mailblaze/transactional",
+    "description": "Official PHP SDK for the Mail Blaze transactional email API.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["mailblaze", "email", "transactional"],
+    "homepage": "https://github.com/mailblaze/mailblaze-transactional-php-sdk",
+    "support": {
+        "issues": "https://github.com/mailblaze/mailblaze-transactional-php-sdk/issues",
+        "source": "https://github.com/mailblaze/mailblaze-transactional-php-sdk"
+    },
+    "authors": [
+        {
+            "name": "Mail Blaze",
+            "email": "support@mailblaze.com",
+            "homepage": "https://www.mailblaze.com"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "ext-json": "*",
+        "php-http/discovery": "^1.20",
+        "psr/http-client": "^1.0",
+        "psr/http-factory": "^1.1",
+        "psr/http-message": "^1.1 || ^2.0",
+        "psr/log": "^3.0"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.88",
+        "nyholm/psr7": "^1.8",
+        "php-http/mock-client": "^1.6",
+        "phpstan/phpstan": "^2.0",
+        "phpunit/phpunit": "^11.5 || ^12.0",
+        "symfony/http-client": "^7.1 || ^8.0"
+    },
+    "suggest": {
+        "nyholm/psr7": "PSR-7 messages and PSR-17 factories.",
+        "symfony/http-client": "PSR-18 HTTP client. Required unless you inject another PSR-18 client. The SDK uses it to apply the timeout and TLS settings."
+    },
+    "autoload": {
+        "psr-4": {
+            "MailBlaze\\Transactional\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "MailBlaze\\Transactional\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "stan": "phpstan analyse --no-progress",
+        "cs": "php-cs-fixer fix --dry-run --diff"
+    }
+}
