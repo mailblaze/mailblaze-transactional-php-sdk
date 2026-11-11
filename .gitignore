@@ -1,0 +1,6 @@
+/vendor/
+.php-cs-fixer.cache
+.phpunit.cache
+.phpstan.cache
+composer.lock
+/examples/local.env
