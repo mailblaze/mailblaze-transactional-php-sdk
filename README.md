@@ -145,4 +145,4 @@ The SMTP username and the exact AUTH mechanism (PLAIN or LOGIN) are not verified
 
 Batch send, webhooks, idempotency keys, universal email elements, and non-PHP languages are not part of this client. Laravel and Symfony mailer bridges are separate packages and are not included here.
 
-The HTTP contract is described in [docs/openapi.yaml](docs/openapi.yaml). The design notes for this release are in [SPEC.md](SPEC.md).
+The HTTP contract is described in [docs/openapi.yaml](docs/openapi.yaml). The design notes for this release are in [SPEC.md](SPEC.md). See [CHANGELOG.md](CHANGELOG.md) for release notes and [SECURITY.md](SECURITY.md) for how to report a vulnerability.
