@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MailBlaze\Transactional;
 
 use MailBlaze\Transactional\Exception\ApiException;
+use MailBlaze\Transactional\Exception\UnconfirmedSendException;
 use MailBlaze\Transactional\Exception\ValidationException;
 use MailBlaze\Transactional\Http\Transport;
 use MailBlaze\Transactional\Http\Values;
@@ -15,7 +16,17 @@ final class Emails
 
     public function send(Email $email): SendResult
     {
-        return SendResult::fromPayload($this->transport->submit('POST', '/transactional', $email->toRequestBody()));
+        $payload = $this->transport->submit('POST', '/transactional', $email->toRequestBody());
+        try {
+            return SendResult::fromPayload($payload);
+        } catch (ApiException $exception) {
+            throw new UnconfirmedSendException(
+                'The Mail Blaze API accepted the request, but the response could not be read. The email may already have been accepted. Check the list before sending it again.',
+                $exception->httpStatus(),
+                $exception->errorCode(),
+                $exception->getMessage(),
+            );
+        }
     }
 
     public function list(int $page = 1, int $perPage = 10): EmailPage
@@ -62,7 +73,7 @@ final class Emails
 
     private static function uid(string $emailUid): string
     {
-        if (preg_match('/^[A-Za-z0-9_-]+$/', $emailUid) !== 1) {
+        if (preg_match('/\A[A-Za-z0-9_-]+\z/', $emailUid) !== 1) {
             throw new ValidationException('email uid is invalid');
         }
 

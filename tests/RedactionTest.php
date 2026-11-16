@@ -69,6 +69,56 @@ final class RedactionTest extends SdkTestCase
         }
     }
 
+    public function testATruncatedErrorStillRedactsTheApiKey(): void
+    {
+        $apiKey = 'FAKEKEY_r9_SecretControl';
+        $prefix = substr($apiKey, 0, -2);
+        $error = str_repeat('x', 500 - strlen($prefix)) . $apiKey;
+        $this->http->addResponse($this->jsonResponse(400, [
+            'status' => 'error',
+            'error' => $error,
+        ]));
+
+        try {
+            $this->client($apiKey)->emails()->send($this->simpleEmail());
+            self::fail('Expected an authentication or validation exception');
+        } catch (\MailBlaze\Transactional\Exception\MailBlazeException $exception) {
+            $fields = [
+                $exception->getMessage(),
+                (string) $exception->errorMessage(),
+                (string) $exception,
+                serialize($exception),
+                print_r($exception, true),
+                var_export($exception, true),
+            ];
+            foreach ($fields as $field) {
+                self::assertStringNotContainsString($apiKey, $field);
+                self::assertStringNotContainsString($prefix, $field);
+            }
+        }
+    }
+
+    public function testAReflectedApiKeyIsNotStoredAsTheErrorCode(): void
+    {
+        $apiKey = 'mb-secret-key-1112';
+        $this->http->addResponse($this->jsonResponse(400, [
+            'status' => 'error',
+            'code' => $apiKey,
+            'error' => 'rejected ' . $apiKey,
+        ]));
+
+        try {
+            $this->client($apiKey)->emails()->send($this->simpleEmail());
+            self::fail('Expected the reflected key to stay out of the exception');
+        } catch (\MailBlaze\Transactional\Exception\MailBlazeException $exception) {
+            self::assertNull($exception->errorCode());
+            self::assertStringNotContainsString($apiKey, $exception->getMessage());
+            self::assertStringNotContainsString($apiKey, (string) $exception->errorMessage());
+            self::assertStringNotContainsString($apiKey, (string) json_encode($exception->__debugInfo()));
+            self::assertStringNotContainsString($apiKey, serialize($exception));
+        }
+    }
+
     public function testRedactorReplacesTheSecretAndItsUrlEncoding(): void
     {
         $secret = 'mb-secret-key-1112';

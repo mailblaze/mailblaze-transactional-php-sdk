@@ -25,7 +25,7 @@ class MailBlazeException extends RuntimeException
         ?string $secret = null,
     ) {
         $this->httpStatus = $httpStatus;
-        $this->errorCode = $errorCode;
+        $this->errorCode = self::publicErrorCode($errorCode, $secret);
         $this->errorMessage = $errorMessage === null ? null : Redactor::redact($errorMessage, $secret);
         parent::__construct(Redactor::redact($message, $secret));
         if ($secret !== null && $secret !== '') {
@@ -98,8 +98,21 @@ class MailBlazeException extends RuntimeException
         $errorCode = $data['errorCode'] ?? null;
         $errorMessage = $data['errorMessage'] ?? null;
         $this->httpStatus = is_int($httpStatus) ? $httpStatus : null;
-        $this->errorCode = is_string($errorCode) ? $errorCode : null;
+        $this->errorCode = self::publicErrorCode(is_string($errorCode) ? $errorCode : null, null);
         $this->errorMessage = is_string($errorMessage) ? $errorMessage : null;
+    }
+
+    private static function publicErrorCode(
+        ?string $errorCode,
+        #[\SensitiveParameter]
+        ?string $secret,
+    ): ?string {
+        if ($errorCode === null || $errorCode === '') {
+            return null;
+        }
+        $errorCode = Redactor::redact($errorCode, $secret);
+
+        return preg_match('/\A\d{3}\.\d{3}\z/', $errorCode) === 1 ? $errorCode : null;
     }
 
     private function dropTraceArguments(): void

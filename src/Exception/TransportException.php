@@ -4,4 +4,4 @@ declare(strict_types=1);
 
 namespace MailBlaze\Transactional\Exception;
 
-final class TransportException extends MailBlazeException {}
+class TransportException extends MailBlazeException {}

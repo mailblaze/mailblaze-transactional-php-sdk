@@ -18,6 +18,10 @@ final class RedactingLogger extends AbstractLogger
         SecretBag::store($this, $secret);
     }
 
+    /**
+     * @param mixed                $level
+     * @param array<array-key, mixed> $context
+     */
     public function log($level, string|Stringable $message, array $context = []): void
     {
         $secret = SecretBag::get($this);

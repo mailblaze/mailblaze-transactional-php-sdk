@@ -3,4 +3,3 @@
 .phpunit.cache
 .phpstan.cache
 composer.lock
-/examples/local.env

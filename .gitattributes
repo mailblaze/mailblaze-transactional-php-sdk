@@ -10,9 +10,6 @@
 
 /.github export-ignore
 /tests export-ignore
-/examples export-ignore
 /.php-cs-fixer.dist.php export-ignore
 /phpstan.neon export-ignore
 /phpunit.xml.dist export-ignore
-/LOCAL-TESTING.md export-ignore
-/SPEC.md export-ignore

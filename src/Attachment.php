@@ -75,11 +75,14 @@ final class Attachment
 
     private static function filename(string $filename): string
     {
-        if (preg_match('/[\r\n\0]/', $filename) === 1 || str_contains($filename, '/') || str_contains($filename, '\\')) {
+        if (preg_match('/\p{Cc}|\p{Cf}|\x{85}|\x{2028}|\x{2029}/u', $filename) === 1 || str_contains($filename, '/') || str_contains($filename, '\\')) {
             throw new ValidationException('Attachment filename must not include a path or line breaks');
         }
 
         $filename = trim($filename);
+        if (strlen($filename) > 255) {
+            throw new ValidationException('Attachment filename is too long');
+        }
         if ($filename === '' || $filename === '.' || $filename === '..') {
             throw new ValidationException('Attachment filename is invalid');
         }

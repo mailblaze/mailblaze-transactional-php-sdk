@@ -25,7 +25,7 @@ final class Email
 
     private ?string $templateId = null;
 
-    /** @var array<string, string> */
+    /** @var array<int|string, string> */
     private array $mergeTags = [];
 
     private ?string $replyToEmail = null;
@@ -75,6 +75,9 @@ final class Email
 
     public function html(string $html): self
     {
+        if (trim($html) === '') {
+            throw new ValidationException('html() must not be empty');
+        }
         if ($this->templateId !== null || $this->mergeTags !== []) {
             throw new ValidationException('html() cannot be combined with templateId()');
         }
@@ -104,7 +107,7 @@ final class Email
     }
 
     /**
-     * @param array<string, bool|float|int|string|null> $tags
+     * @param array<int|string, bool|float|int|string|null|\Stringable> $tags
      */
     public function mergeTags(array $tags): self
     {
@@ -113,14 +116,11 @@ final class Email
         }
 
         foreach ($tags as $key => $value) {
-            if (preg_match('/^[A-Z0-9_]+$/', $key) !== 1) {
+            $name = is_int($key) ? (string) $key : $key;
+            if (preg_match('/\A[A-Z0-9_]+\z/', $name) !== 1) {
                 throw new ValidationException('Merge tag names must match [A-Z0-9_]');
             }
-            if (is_bool($value)) {
-                $this->mergeTags[$key] = $value ? '1' : '0';
-                continue;
-            }
-            $this->mergeTags[$key] = $value === null ? '' : (string) $value;
+            $this->mergeTags[$name] = self::mergeTagValue($value);
         }
 
         return $this;
@@ -161,7 +161,7 @@ final class Email
 
     public function sendAt(DateTimeInterface $sendAt): self
     {
-        $this->sendAt = $sendAt;
+        $this->sendAt = \DateTimeImmutable::createFromInterface($sendAt);
 
         return $this;
     }
@@ -214,12 +214,14 @@ final class Email
             $body['category'] = $this->category;
         }
         if ($this->sendAt !== null) {
-            $body['send_at'] = $this->sendAt->format('Y-m-d\\TH:i:s');
+            $body['send_at'] = $this->sendAt->format('Y-m-d\\TH:i:sP');
         }
 
         if ($this->templateId !== null) {
             $body['template_id'] = $this->templateId;
-            $body['merge_tags'] = $this->mergeTags === [] ? new \stdClass() : $this->mergeTags;
+            // Numeric names such as "0" are valid tags, but PHP stores them as list keys.
+            // stdClass keeps every name a JSON object property.
+            $body['merge_tags'] = self::mergeTagObject($this->mergeTags);
         } else {
             $body['body'] = self::strictBase64((string) $this->html);
             if ($this->text !== null) {
@@ -236,9 +238,22 @@ final class Email
         return $body;
     }
 
+    /**
+     * @param array<int|string, string> $tags
+     */
+    private static function mergeTagObject(array $tags): \stdClass
+    {
+        $object = new \stdClass();
+        foreach ($tags as $name => $value) {
+            $object->{(string) $name} = $value;
+        }
+
+        return $object;
+    }
+
     private function headerValue(string $value, string $label): string
     {
-        if (preg_match('/[\r\n]/', $value) === 1) {
+        if (preg_match('/\p{Cc}|\x{85}|\x{2028}|\x{2029}/u', $value) === 1) {
             throw new ValidationException($label . ' must not contain line breaks');
         }
 
@@ -258,6 +273,27 @@ final class Email
         }
 
         return $value;
+    }
+
+    private static function mergeTagValue(mixed $value): string
+    {
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+        if ($value === null) {
+            return '';
+        }
+        if (is_int($value) || is_string($value)) {
+            return (string) $value;
+        }
+        if (is_float($value) && is_finite($value)) {
+            return (string) $value;
+        }
+        if ($value instanceof \Stringable) {
+            return (string) $value;
+        }
+
+        throw new ValidationException('Merge tag values must be scalar');
     }
 
     private static function strictBase64(string $value): string

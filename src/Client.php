@@ -37,10 +37,10 @@ final class Client
         if ($httpClient !== null && $allowInsecureTls) {
             self::rejectInsecureFlagWithInjectedClient();
         }
-        if ($timeout <= 0) {
+        if (!is_finite($timeout) || $timeout <= 0 || $timeout > 120) {
             self::rejectTimeout();
         }
-        if ($getRetryLimit < 0 || $retryDelayMs < 0) {
+        if ($getRetryLimit < 0 || $getRetryLimit > 5 || $retryDelayMs < 0 || $retryDelayMs > 5000) {
             self::rejectRetrySettings();
         }
 
@@ -98,7 +98,7 @@ final class Client
      */
     private static function rejectTimeout(): void
     {
-        throw new \InvalidArgumentException('timeout must be greater than zero');
+        throw new \InvalidArgumentException('timeout must be greater than zero and no more than 120 seconds');
     }
 
     /**
@@ -106,6 +106,6 @@ final class Client
      */
     private static function rejectRetrySettings(): void
     {
-        throw new \InvalidArgumentException('retry settings must not be negative');
+        throw new \InvalidArgumentException('getRetryLimit must be from 0 to 5 and retryDelayMs must be from 0 to 5000');
     }
 }

@@ -27,12 +27,19 @@ final class Json
      */
     public static function decodeObject(string $json): array
     {
+        if (str_starts_with($json, "\xEF\xBB\xBF")) {
+            $json = substr($json, 3);
+        }
+
         try {
             $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             throw new ApiException('The Mail Blaze API returned invalid JSON');
         }
 
+        if ($decoded === [] && preg_match('/\A\{\s*\}\z/', trim($json)) === 1) {
+            return [];
+        }
         if (!is_array($decoded) || array_is_list($decoded)) {
             throw new ApiException('The Mail Blaze API returned invalid JSON');
         }

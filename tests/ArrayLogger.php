@@ -9,9 +9,13 @@ use Stringable;
 
 final class ArrayLogger extends AbstractLogger
 {
-    /** @var list<array{level: mixed, message: string, context: array<mixed>}> */
+    /** @var list<array{level: mixed, message: string, context: array<array-key, mixed>}> */
     public array $records = [];
 
+    /**
+     * @param mixed                   $level
+     * @param array<array-key, mixed> $context
+     */
     public function log($level, string|Stringable $message, array $context = []): void
     {
         $this->records[] = [

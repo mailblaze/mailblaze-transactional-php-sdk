@@ -8,6 +8,9 @@ use MailBlaze\Transactional\Attachment;
 use MailBlaze\Transactional\Exception\ApiException;
 use MailBlaze\Transactional\Exception\TransportException;
 use Psr\Http\Client\ClientExceptionInterface;
+use Psr\Http\Client\ClientInterface;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 use RuntimeException;
 
 final class ClientTest extends SdkTestCase
@@ -84,6 +87,29 @@ final class ClientTest extends SdkTestCase
         self::assertArrayNotHasKey('plain_text', $payload);
     }
 
+    public function testNumericMergeTagNamesStayAJsonObject(): void
+    {
+        $this->http->addResponse($this->jsonResponse(201, [
+            'status' => 'success',
+            'code' => '000.000',
+            'email_uid' => 'em_tags',
+            'warning' => null,
+        ]));
+
+        $this->client()->emails()->send(
+            EmailBuilder::base()
+                ->templateId('ab123456-1234-1234-1234-123456789abc')
+                ->mergeTags(['0' => 'zero', '1' => 'one']),
+        );
+
+        $raw = $this->lastRequest()->getBody();
+        $raw->rewind();
+        $json = $raw->getContents();
+
+        self::assertStringContainsString('"merge_tags":{"0":"zero","1":"one"}', $json);
+        self::assertStringNotContainsString('"merge_tags":[', $json);
+    }
+
     public function testTemplateSendIncludesAttachments(): void
     {
         $this->http->addResponse($this->jsonResponse(201, [
@@ -112,7 +138,7 @@ final class ClientTest extends SdkTestCase
         self::assertArrayNotHasKey('plain_text', $payload);
     }
 
-    public function testSendAtUsesTheClockTimeWithoutATimezoneSuffix(): void
+    public function testSendAtKeepsTheTimezoneOffset(): void
     {
         $this->http->addResponse($this->jsonResponse(201, [
             'status' => 'success',
@@ -125,7 +151,7 @@ final class ClientTest extends SdkTestCase
             EmailBuilder::receipt()->sendAt(new \DateTimeImmutable('2026-11-11 15:04:05', new \DateTimeZone('Asia/Manila'))),
         );
 
-        self::assertSame('2026-11-11T15:04:05', $this->lastJson()['send_at']);
+        self::assertSame('2026-11-11T15:04:05+08:00', $this->lastJson()['send_at']);
     }
 
     public function testListGetAndAttachments(): void
@@ -363,14 +389,21 @@ final class ClientTest extends SdkTestCase
         );
     }
 
-    public function testInvalidJsonFromTheApiIsAnApiException(): void
+    public function testASuccessfulSendWithAnUnreadableBodyIsNotARetryableFailure(): void
     {
         $this->http->addResponse(
-            $this->factory->createResponse(200)->withBody($this->factory->createStream('not-json')),
+            $this->factory->createResponse(201)->withBody($this->factory->createStream('not-json')),
         );
 
-        $this->expectException(ApiException::class);
-        $this->client()->emails()->send(EmailBuilder::receipt());
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('An unreadable success response must not look like a normal failure');
+        } catch (\MailBlaze\Transactional\Exception\UnconfirmedSendException $exception) {
+            self::assertSame(201, $exception->httpStatus());
+            self::assertStringContainsString('may already have been accepted', $exception->getMessage());
+            self::assertInstanceOf(\MailBlaze\Transactional\Exception\TransportException::class, $exception);
+        }
+        self::assertCount(1, $this->http->getRequests());
     }
 
     public function testLogsOmitTheApiKeyAndMessageBody(): void
@@ -392,9 +425,889 @@ final class ClientTest extends SdkTestCase
         self::assertStringNotContainsString(base64_encode($html), $encoded);
         self::assertNotSame([], $logger->records);
     }
+
+    public function testAnInvalidApiKeyIsAnAuthenticationError(): void
+    {
+        $this->http->addResponse($this->factory->createResponse(400)->withBody($this->factory->createStream(
+            '{"status":"error","error":"Invalid API key. Please refer to the documentation."}',
+        )));
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('A bad key must not be reported as a validation error');
+        } catch (\MailBlaze\Transactional\Exception\AuthenticationException $exception) {
+            self::assertSame(400, $exception->httpStatus());
+            self::assertNull($exception->errorCode());
+        }
+    }
+
+    public function testABodyReadFailureAfterASuccessfulSendIsNotARetryableFailure(): void
+    {
+        $stream = $this->createStub(\Psr\Http\Message\StreamInterface::class);
+        $stream->method('__toString')->willThrowException(new RuntimeException('Unable to read stream contents'));
+        $this->http->addResponse($this->factory->createResponse(201)->withBody($stream));
+        $this->http->addResponse($this->jsonResponse(201, [
+            'status' => 'success',
+            'code' => '000.000',
+            'email_uid' => 'should-not-be-used',
+            'warning' => null,
+        ]));
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('A body read after a successful send must not look like a network failure');
+        } catch (\MailBlaze\Transactional\Exception\UnconfirmedSendException $exception) {
+            self::assertSame(201, $exception->httpStatus());
+            self::assertStringContainsString('may already have been accepted', $exception->getMessage());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testAGetBodyReadFailureIsRetried(): void
+    {
+        $stream = $this->createStub(\Psr\Http\Message\StreamInterface::class);
+        $stream->method('__toString')->willThrowException(new RuntimeException('Unable to read stream contents'));
+        $this->http->addResponse($this->factory->createResponse(200)->withBody($stream));
+        $this->http->addResponse($this->jsonResponse(200, [
+            'status' => 'success',
+            'code' => '050.001',
+            'data' => [
+                'count' => null,
+                'total_pages' => null,
+                'current_page' => null,
+                'next_page' => null,
+                'prev_page' => null,
+                'records' => [],
+            ],
+        ]));
+
+        $page = $this->client(getRetryLimit: 1)->emails()->list();
+
+        self::assertSame('050.001', $page->code());
+        self::assertCount(2, $this->http->getRequests());
+    }
+
+    public function testAGetWithAnEmptyBodyIsRetriedLikeAStalledStream(): void
+    {
+        $this->http->addResponse($this->factory->createResponse(200)->withBody($this->factory->createStream('')));
+        $this->http->addResponse($this->jsonResponse(200, [
+            'status' => 'success',
+            'code' => '050.001',
+            'data' => [
+                'count' => null,
+                'total_pages' => null,
+                'current_page' => null,
+                'next_page' => null,
+                'prev_page' => null,
+                'records' => [],
+            ],
+        ]));
+
+        $page = $this->client(getRetryLimit: 1)->emails()->list();
+
+        self::assertSame('050.001', $page->code());
+        self::assertCount(2, $this->http->getRequests());
+    }
+
+    public function testAGetWithTruncatedJsonIsRetried(): void
+    {
+        $this->http->addResponse($this->factory->createResponse(200)->withBody($this->factory->createStream('{"status":"success"')));
+        $this->http->addResponse($this->jsonResponse(200, [
+            'status' => 'success',
+            'code' => '000.000',
+            'data' => [
+                'count' => 0,
+                'total_pages' => 0,
+                'current_page' => 1,
+                'next_page' => null,
+                'prev_page' => null,
+                'records' => [],
+            ],
+        ]));
+
+        $page = $this->client(getRetryLimit: 1)->emails()->list();
+
+        self::assertSame('000.000', $page->code());
+        self::assertCount(2, $this->http->getRequests());
+    }
+
+    public function testAGetWithInvalidJsonIsNotRetriedAfter401(): void
+    {
+        $this->http->addResponse($this->factory->createResponse(401)->withBody($this->factory->createStream('<html>denied</html>')));
+        $this->http->addResponse($this->jsonResponse(200, [
+            'status' => 'success',
+            'code' => '050.001',
+            'data' => [
+                'count' => null,
+                'total_pages' => null,
+                'current_page' => null,
+                'next_page' => null,
+                'prev_page' => null,
+                'records' => [],
+            ],
+        ]));
+
+        try {
+            $this->client()->emails()->list();
+            self::fail('A 401 with a non-JSON body must not be retried');
+        } catch (\MailBlaze\Transactional\Exception\AuthenticationException $exception) {
+            self::assertSame(401, $exception->httpStatus());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testInvalidUtf8StaysAValidationError(): void
+    {
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt()->subject("\xFF"));
+            self::fail('Invalid UTF-8 must be a validation error');
+        } catch (\MailBlaze\Transactional\Exception\ValidationException $exception) {
+            self::assertSame('The request payload could not be encoded as JSON', $exception->getMessage());
+        }
+        self::assertSame([], $this->http->getRequests());
+    }
+
+    public function testANumericEmailUidOnSuccessIsNotANormalFailure(): void
+    {
+        $this->http->addResponse($this->jsonResponse(201, [
+            'status' => 'success',
+            'code' => '000.000',
+            'email_uid' => 123,
+            'warning' => null,
+        ]));
+
+        $this->expectException(\MailBlaze\Transactional\Exception\UnconfirmedSendException::class);
+        $this->client()->emails()->send(EmailBuilder::receipt());
+    }
+
+    public function testAControlCharacterInTheApiKeyIsRejectedBeforeTheRequest(): void
+    {
+        try {
+            $this->client("mb-secret-key-1112\x7F");
+            self::fail('A control character in the API key must be rejected');
+        } catch (TransportException $exception) {
+            self::assertStringNotContainsString('mb-secret-key-1112', $exception->getMessage());
+            self::assertStringNotContainsString("\x7F", $exception->getMessage());
+        }
+        self::assertSame([], $this->http->getRequests());
+    }
+
+    public function testAnHtmlErrorKeepsItsHttpStatus(): void
+    {
+        $this->http->addResponse(
+            $this->factory->createResponse(401)->withBody($this->factory->createStream('<html>denied</html>')),
+        );
+
+        try {
+            $this->client()->emails()->list();
+            self::fail('An HTML error must still carry its HTTP status');
+        } catch (\MailBlaze\Transactional\Exception\AuthenticationException $exception) {
+            self::assertSame(401, $exception->httpStatus());
+        }
+    }
+
+    public function testARedirectIsNotTreatedAsSuccess(): void
+    {
+        $this->http->addResponse($this->factory->createResponse(302)->withHeader('Location', 'https://example.test/'));
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('A redirect must not be treated as a successful send');
+        } catch (ApiException $exception) {
+            self::assertSame(302, $exception->httpStatus());
+        }
+    }
+
+    public function testTheBaseUriRejectsAFragmentAndADisguisedHost(): void
+    {
+        $this->expectException(TransportException::class);
+        \MailBlaze\Transactional\Client::create(
+            'mb-secret-key-1112',
+            baseUri: 'https://control.mailblaze.com/api#key',
+            httpClient: $this->http,
+            requestFactory: $this->factory,
+            streamFactory: $this->factory,
+        );
+    }
+
+    public function testTheBaseUriRejectsPrivateAndLinkLocalIps(): void
+    {
+        foreach ([
+            'https://169.254.169.254/api',
+            'https://192.168.1.10/api',
+            'https://10.0.0.5/api',
+            'https://[fe80::1]/api',
+        ] as $baseUri) {
+            try {
+                \MailBlaze\Transactional\Client::create(
+                    'mb-secret-key-1112',
+                    baseUri: $baseUri,
+                    httpClient: $this->http,
+                    requestFactory: $this->factory,
+                    streamFactory: $this->factory,
+                );
+                self::fail('Private or link-local base URIs must be rejected: ' . $baseUri);
+            } catch (TransportException $exception) {
+                self::assertSame('Base URI must be an https URL', $exception->getMessage());
+            }
+        }
+    }
+
+    public function testTheBaseUriAcceptsLoopbackHttps(): void
+    {
+        $client = \MailBlaze\Transactional\Client::create(
+            'mb-secret-key-1112',
+            baseUri: 'https://127.0.0.1/api',
+            httpClient: $this->http,
+            requestFactory: $this->factory,
+            streamFactory: $this->factory,
+        );
+
+        self::assertInstanceOf(\MailBlaze\Transactional\Client::class, $client);
+    }
+
+    public function testAnInjectedGuzzleClientMustDisableRedirects(): void
+    {
+        $guzzleClass = 'GuzzleHttp\\Client';
+        if (!class_exists($guzzleClass)) {
+            self::markTestSkipped('guzzlehttp/guzzle is not installed');
+        }
+
+        $guzzle = new $guzzleClass();
+        if (!$guzzle instanceof \Psr\Http\Client\ClientInterface) {
+            self::fail('GuzzleHttp\\Client must implement ClientInterface');
+        }
+
+        $this->expectException(TransportException::class);
+        $this->expectExceptionMessage('allow_redirects');
+        \MailBlaze\Transactional\Client::create(
+            'mb-secret-key-1112',
+            httpClient: $guzzle,
+            requestFactory: $this->factory,
+            streamFactory: $this->factory,
+        );
+    }
+
+    public function testAllowHttpAcceptsIpv6Localhost(): void
+    {
+        $this->http->addResponse($this->jsonResponse(200, [
+            'status' => 'success',
+            'code' => '050.001',
+            'data' => [
+                'count' => null,
+                'total_pages' => null,
+                'current_page' => null,
+                'next_page' => null,
+                'prev_page' => null,
+                'records' => [],
+            ],
+        ]));
+
+        $client = \MailBlaze\Transactional\Client::create(
+            'mb-secret-key-1112',
+            baseUri: 'http://[::1]:8080/api',
+            allowHttp: true,
+            httpClient: $this->http,
+            requestFactory: $this->factory,
+            streamFactory: $this->factory,
+        );
+        $client->emails()->list();
+
+        self::assertSame(
+            'http://[::1]:8080/api/transactional?page=1&per_page=10',
+            (string) $this->lastRequest()->getUri(),
+        );
+    }
+
+    public function testANonPsrClientErrorDoesNotLeakTheApiKey(): void
+    {
+        $client = \MailBlaze\Transactional\Client::create(
+            'mb-secret-key-1112',
+            httpClient: new KeyLeakingClient(),
+            requestFactory: $this->factory,
+            streamFactory: $this->factory,
+        );
+
+        try {
+            $client->emails()->send(EmailBuilder::receipt());
+            self::fail('A client error must stay inside TransportException');
+        } catch (TransportException $exception) {
+            self::assertNull($exception->getPrevious());
+            $rendered = $exception->getMessage() . $exception->getTraceAsString() . var_export($exception, true);
+            self::assertStringNotContainsString('mb-secret-key-1112', $rendered);
+        }
+    }
+
+    public function testACustomResponseStatusAccessorDoesNotLeakTheApiKey(): void
+    {
+        $this->http->addResponse(new StatusLeakingResponse('mb-secret-key-1112'));
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('A broken status accessor must stay inside TransportException');
+        } catch (TransportException $exception) {
+            self::assertNull($exception->getPrevious());
+            $rendered = $exception->getMessage() . $exception->getTraceAsString() . var_export($exception, true);
+            self::assertStringNotContainsString('mb-secret-key-1112', $rendered);
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testARedirectWithAnUnreadableBodyIsNotRetried(): void
+    {
+        $stream = $this->createStub(\Psr\Http\Message\StreamInterface::class);
+        $stream->method('__toString')->willThrowException(new RuntimeException('Unable to read stream contents'));
+        $this->http->addResponse($this->factory->createResponse(302)->withHeader('Location', 'https://example.test/')->withBody($stream));
+        $this->http->addResponse($this->jsonResponse(200, [
+            'status' => 'success',
+            'code' => '050.001',
+            'data' => [
+                'count' => null,
+                'total_pages' => null,
+                'current_page' => null,
+                'next_page' => null,
+                'prev_page' => null,
+                'records' => [],
+            ],
+        ]));
+
+        try {
+            $this->client()->emails()->list();
+            self::fail('A redirect must not be retried when its body cannot be read');
+        } catch (ApiException $exception) {
+            self::assertSame(302, $exception->httpStatus());
+            self::assertStringContainsString('redirect', $exception->getMessage());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testATimedOutStreamIsNotTreatedAsACompleteBody(): void
+    {
+        $stream = $this->createStub(\Psr\Http\Message\StreamInterface::class);
+        $stream->method('__toString')->willReturn('{"status":"success","code":"000.000","email_uid":"em_partial","warning":null}');
+        $stream->method('getMetadata')->willReturn(['timed_out' => true, 'eof' => false, 'unread_bytes' => 100]);
+        $this->http->addResponse($this->factory->createResponse(201)->withBody($stream));
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('A timed-out stream must not look like a confirmed send');
+        } catch (\MailBlaze\Transactional\Exception\UnconfirmedSendException $exception) {
+            self::assertSame(201, $exception->httpStatus());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testABodyShorterThanContentLengthIsIncomplete(): void
+    {
+        $json = '{"status":"success","code":"000.000","email_uid":"em_partial","warning":null}';
+        $this->http->addResponse(
+            $this->factory->createResponse(201)
+                ->withHeader('Content-Length', (string) (strlen($json) + 100))
+                ->withBody($this->factory->createStream($json)),
+        );
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('A short body must not look like a confirmed send');
+        } catch (\MailBlaze\Transactional\Exception\UnconfirmedSendException $exception) {
+            self::assertSame(201, $exception->httpStatus());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testADuplicateContentLengthStillDetectsAShortBody(): void
+    {
+        $json = '{"status":"success","code":"000.000","email_uid":"em_partial","warning":null}';
+        $declared = (string) (strlen($json) + 100);
+        $this->http->addResponse(
+            $this->factory->createResponse(201)
+                ->withHeader('Content-Length', $declared . ', ' . $declared)
+                ->withBody($this->factory->createStream($json)),
+        );
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('A short body with a duplicate Content-Length must not look confirmed');
+        } catch (\MailBlaze\Transactional\Exception\UnconfirmedSendException $exception) {
+            self::assertSame(201, $exception->httpStatus());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testConflictingContentLengthValuesAreRejected(): void
+    {
+        $json = '{"status":"success","code":"000.000","email_uid":"em_partial","warning":null}';
+        $this->http->addResponse(
+            $this->factory->createResponse(201)
+                ->withHeader('Content-Length', strlen($json) . ', ' . (strlen($json) + 100))
+                ->withBody($this->factory->createStream($json)),
+        );
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('Conflicting Content-Length values must not look confirmed');
+        } catch (\MailBlaze\Transactional\Exception\UnconfirmedSendException $exception) {
+            self::assertSame(201, $exception->httpStatus());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testMalformedContentLengthWithGzipIsStillRejected(): void
+    {
+        $json = '{"status":"success","code":"000.000","email_uid":"em_gzip","warning":null}';
+        $this->http->addResponse(
+            $this->factory->createResponse(201)
+                ->withHeader('Content-Encoding', 'gzip')
+                ->withHeader('Content-Length', '81,181')
+                ->withBody($this->factory->createStream($json)),
+        );
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('Malformed Content-Length must be rejected even with gzip');
+        } catch (\MailBlaze\Transactional\Exception\UnconfirmedSendException $exception) {
+            self::assertSame(201, $exception->httpStatus());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testAnEnormousContentLengthIsRejected(): void
+    {
+        $json = '{"status":"success","code":"000.000","email_uid":"em_huge","warning":null}';
+        $this->http->addResponse(
+            $this->factory->createResponse(201)
+                ->withHeader('Content-Length', str_repeat('9', 40))
+                ->withBody($this->factory->createStream($json)),
+        );
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('An enormous Content-Length must not look confirmed');
+        } catch (\MailBlaze\Transactional\Exception\UnconfirmedSendException $exception) {
+            self::assertSame(201, $exception->httpStatus());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testAnOversizedBodyWithoutContentLengthIsRejected(): void
+    {
+        $body = str_repeat('a', (16 * 1024 * 1024) + 1);
+        $this->http->addResponse(
+            $this->factory->createResponse(201)->withBody($this->factory->createStream($body)),
+        );
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('An oversized body without Content-Length must not look confirmed');
+        } catch (\MailBlaze\Transactional\Exception\UnconfirmedSendException $exception) {
+            self::assertSame(201, $exception->httpStatus());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testAnOversizedChunkSizeIsRejected(): void
+    {
+        // 0x1000001 = 16 MiB + 1. Reject before allocating that many bytes.
+        $chunked = "1000001\r\nx\r\n0\r\n\r\n";
+        $this->http->addResponse(
+            $this->factory->createResponse(201)
+                ->withHeader('Transfer-Encoding', 'chunked')
+                ->withBody($this->factory->createStream($chunked)),
+        );
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('An oversized chunk size must not look confirmed');
+        } catch (\MailBlaze\Transactional\Exception\UnconfirmedSendException $exception) {
+            self::assertSame(201, $exception->httpStatus());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testGzipDoesNotCompareContentLengthToTheDecodedBody(): void
+    {
+        $json = '{"status":"success","code":"000.000","email_uid":"em_gzip_ok","warning":null}';
+        $this->http->addResponse(
+            $this->factory->createResponse(201)
+                ->withHeader('Content-Encoding', 'gzip')
+                ->withHeader('Content-Length', (string) (strlen($json) + 100))
+                ->withBody($this->factory->createStream($json)),
+        );
+
+        $result = $this->client()->emails()->send(EmailBuilder::receipt());
+
+        self::assertSame('em_gzip_ok', $result->emailUid());
+    }
+
+    public function testAChunkedBodyWithoutATerminalChunkIsIncomplete(): void
+    {
+        $json = '{"status":"success","code":"000.000","email_uid":"em_partial","warning":null}';
+        $chunked = sprintf("%x\r\n%s\r\n", strlen($json), $json);
+        $this->http->addResponse(
+            $this->factory->createResponse(201)
+                ->withHeader('Transfer-Encoding', 'chunked')
+                ->withBody($this->factory->createStream($chunked)),
+        );
+
+        try {
+            $this->client()->emails()->send(EmailBuilder::receipt());
+            self::fail('A chunked body without a terminal chunk must not look like a confirmed send');
+        } catch (\MailBlaze\Transactional\Exception\UnconfirmedSendException $exception) {
+            self::assertSame(201, $exception->httpStatus());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testACompleteChunkedBodyIsAccepted(): void
+    {
+        $json = '{"status":"success","code":"000.000","email_uid":"em_chunk","warning":null}';
+        $chunked = sprintf("%x\r\n%s\r\n0\r\n\r\n", strlen($json), $json);
+        $this->http->addResponse(
+            $this->factory->createResponse(201)
+                ->withHeader('Transfer-Encoding', 'chunked')
+                ->withBody($this->factory->createStream($chunked)),
+        );
+
+        $result = $this->client()->emails()->send(EmailBuilder::receipt());
+
+        self::assertSame('em_chunk', $result->emailUid());
+    }
+
+    public function testZeroPaddedChunkSizesAreAccepted(): void
+    {
+        $json = '{"status":"success","code":"000.000","email_uid":"em_padded","warning":null}';
+        $chunked = sprintf("000000%X\r\n%s\r\n00000000\r\n\r\n", strlen($json), $json);
+        $this->http->addResponse(
+            $this->factory->createResponse(201)
+                ->withHeader('Transfer-Encoding', 'chunked')
+                ->withBody($this->factory->createStream($chunked)),
+        );
+
+        $result = $this->client()->emails()->send(EmailBuilder::receipt());
+
+        self::assertSame('em_padded', $result->emailUid());
+    }
+
+    public function testInvalidChunkTrailerNamesAreRejected(): void
+    {
+        $json = '{"status":"success","code":"000.000","email_uid":"em_trailer","warning":null}';
+        foreach (["Bad(Header): yes\r\n\r\n", ":Bad: yes\r\n\r\n"] as $trailer) {
+            $this->http->reset();
+            $chunked = sprintf("%x\r\n%s\r\n0\r\n%s", strlen($json), $json, $trailer);
+            $this->http->addResponse(
+                $this->factory->createResponse(201)
+                    ->withHeader('Transfer-Encoding', 'chunked')
+                    ->withBody($this->factory->createStream($chunked)),
+            );
+
+            try {
+                $this->client()->emails()->send(EmailBuilder::receipt());
+                self::fail('Invalid chunk trailer names must not look confirmed');
+            } catch (\MailBlaze\Transactional\Exception\UnconfirmedSendException $exception) {
+                self::assertSame(201, $exception->httpStatus());
+            }
+            self::assertCount(1, $this->http->getRequests());
+        }
+    }
+
+    public function testValidChunkTrailersAreAccepted(): void
+    {
+        $json = '{"status":"success","code":"000.000","email_uid":"em_ok_trailer","warning":null}';
+        $chunked = sprintf("%x\r\n%s\r\n0\r\nExpires: Wed, 21 Oct 2015 07:28:00 GMT\r\n\r\n", strlen($json), $json);
+        $this->http->addResponse(
+            $this->factory->createResponse(201)
+                ->withHeader('Transfer-Encoding', 'chunked')
+                ->withBody($this->factory->createStream($chunked)),
+        );
+
+        $result = $this->client()->emails()->send(EmailBuilder::receipt());
+
+        self::assertSame('em_ok_trailer', $result->emailUid());
+    }
+
+    public function testAnAlreadyDecodedChunkedJsonBodyIsNotDecodedAgain(): void
+    {
+        $json = '{"status":"success","code":"000.000","email_uid":"em_symfony_chunk","warning":null}';
+        $this->http->addResponse(
+            $this->factory->createResponse(201)
+                ->withHeader('Transfer-Encoding', 'chunked')
+                ->withBody($this->factory->createStream($json)),
+        );
+
+        $result = $this->client()->emails()->send(EmailBuilder::receipt());
+
+        self::assertSame('em_symfony_chunk', $result->emailUid());
+    }
+
+    public function testAThrowingHeaderAccessorDoesNotLeakTheApiKey(): void
+    {
+        $this->http->addResponse(new HeaderLeakingResponse('mb-secret-key-1112', 401));
+
+        try {
+            $this->client()->emails()->list();
+            self::fail('A broken header accessor must stay inside an SDK exception');
+        } catch (\MailBlaze\Transactional\Exception\MailBlazeException $exception) {
+            self::assertNull($exception->getPrevious());
+            $rendered = $exception->getMessage() . $exception->getTraceAsString() . var_export($exception, true);
+            self::assertStringNotContainsString('mb-secret-key-1112', $rendered);
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testATimedOutGetStreamIsRetried(): void
+    {
+        $stream = $this->createStub(\Psr\Http\Message\StreamInterface::class);
+        $stream->method('__toString')->willReturn('{"status":"success","code":"050.001"}');
+        $stream->method('getMetadata')->willReturn(['timed_out' => true, 'eof' => false, 'unread_bytes' => 50]);
+        $this->http->addResponse($this->factory->createResponse(200)->withBody($stream));
+        $this->http->addResponse($this->jsonResponse(200, [
+            'status' => 'success',
+            'code' => '050.001',
+            'data' => [
+                'count' => null,
+                'total_pages' => null,
+                'current_page' => null,
+                'next_page' => null,
+                'prev_page' => null,
+                'records' => [],
+            ],
+        ]));
+
+        $page = $this->client(getRetryLimit: 1)->emails()->list();
+
+        self::assertSame('050.001', $page->code());
+        self::assertCount(2, $this->http->getRequests());
+    }
+
+    public function testAFailedGetBodyReadOn401IsNotRetried(): void
+    {
+        $stream = $this->createStub(\Psr\Http\Message\StreamInterface::class);
+        $stream->method('__toString')->willThrowException(new RuntimeException('Unable to read stream contents'));
+        $this->http->addResponse($this->factory->createResponse(401)->withBody($stream));
+        $this->http->addResponse($this->jsonResponse(200, [
+            'status' => 'success',
+            'code' => '050.001',
+            'data' => [
+                'count' => null,
+                'total_pages' => null,
+                'current_page' => null,
+                'next_page' => null,
+                'prev_page' => null,
+                'records' => [],
+            ],
+        ]));
+
+        try {
+            $this->client()->emails()->list();
+            self::fail('A 401 whose body cannot be read must not be retried');
+        } catch (\MailBlaze\Transactional\Exception\AuthenticationException $exception) {
+            self::assertSame(401, $exception->httpStatus());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testAFailedGetBodyReadOn404IsNotRetried(): void
+    {
+        $stream = $this->createStub(\Psr\Http\Message\StreamInterface::class);
+        $stream->method('__toString')->willThrowException(new RuntimeException('Unable to read stream contents'));
+        $this->http->addResponse($this->factory->createResponse(404)->withBody($stream));
+        $this->http->addResponse($this->jsonResponse(200, [
+            'status' => 'success',
+            'code' => '050.001',
+            'data' => [
+                'count' => null,
+                'total_pages' => null,
+                'current_page' => null,
+                'next_page' => null,
+                'prev_page' => null,
+                'records' => [],
+            ],
+        ]));
+
+        try {
+            $this->client()->emails()->get('em_123');
+            self::fail('A 404 whose body cannot be read must not be retried');
+        } catch (\MailBlaze\Transactional\Exception\NotFoundException $exception) {
+            self::assertSame(404, $exception->httpStatus());
+        }
+        self::assertCount(1, $this->http->getRequests());
+    }
+
+    public function testANonFiniteTimeoutIsRejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        \MailBlaze\Transactional\Client::create(
+            'mb-secret-key-1112',
+            timeout: \NAN,
+            httpClient: $this->http,
+            requestFactory: $this->factory,
+            streamFactory: $this->factory,
+        );
+    }
 }
 
 final class NetworkFailure extends RuntimeException implements ClientExceptionInterface {}
+
+final class KeyLeakingClient implements ClientInterface
+{
+    public function sendRequest(RequestInterface $request): ResponseInterface
+    {
+        throw new \TypeError('header ' . $request->getHeaderLine('Authorization'));
+    }
+}
+
+final class StatusLeakingResponse implements ResponseInterface
+{
+    public function __construct(private readonly string $secret) {}
+
+    public function getProtocolVersion(): string
+    {
+        return '1.1';
+    }
+
+    public function withProtocolVersion(string $version): ResponseInterface
+    {
+        return $this;
+    }
+
+    public function getHeaders(): array
+    {
+        return [];
+    }
+
+    public function hasHeader(string $name): bool
+    {
+        return false;
+    }
+
+    public function getHeader(string $name): array
+    {
+        return [];
+    }
+
+    public function getHeaderLine(string $name): string
+    {
+        return '';
+    }
+
+    public function withHeader(string $name, $value): ResponseInterface
+    {
+        return $this;
+    }
+
+    public function withAddedHeader(string $name, $value): ResponseInterface
+    {
+        return $this;
+    }
+
+    public function withoutHeader(string $name): ResponseInterface
+    {
+        return $this;
+    }
+
+    public function getBody(): \Psr\Http\Message\StreamInterface
+    {
+        throw new RuntimeException('body was not read');
+    }
+
+    public function withBody(\Psr\Http\Message\StreamInterface $body): ResponseInterface
+    {
+        return $this;
+    }
+
+    public function getStatusCode(): int
+    {
+        throw new RuntimeException('Authorization: ' . $this->secret);
+    }
+
+    public function withStatus(int $code, string $reasonPhrase = ''): ResponseInterface
+    {
+        return $this;
+    }
+
+    public function getReasonPhrase(): string
+    {
+        return '';
+    }
+}
+
+final class HeaderLeakingResponse implements ResponseInterface
+{
+    public function __construct(
+        private readonly string $secret,
+        private readonly int $status = 201,
+    ) {}
+
+    public function getProtocolVersion(): string
+    {
+        return '1.1';
+    }
+
+    public function withProtocolVersion(string $version): ResponseInterface
+    {
+        return $this;
+    }
+
+    public function getHeaders(): array
+    {
+        return [];
+    }
+
+    public function hasHeader(string $name): bool
+    {
+        return false;
+    }
+
+    public function getHeader(string $name): array
+    {
+        return [];
+    }
+
+    public function getHeaderLine(string $name): string
+    {
+        throw new RuntimeException('Authorization: ' . $this->secret);
+    }
+
+    public function withHeader(string $name, $value): ResponseInterface
+    {
+        return $this;
+    }
+
+    public function withAddedHeader(string $name, $value): ResponseInterface
+    {
+        return $this;
+    }
+
+    public function withoutHeader(string $name): ResponseInterface
+    {
+        return $this;
+    }
+
+    public function getBody(): \Psr\Http\Message\StreamInterface
+    {
+        return (new \Nyholm\Psr7\Factory\Psr17Factory())->createStream('{}');
+    }
+
+    public function withBody(\Psr\Http\Message\StreamInterface $body): ResponseInterface
+    {
+        return $this;
+    }
+
+    public function getStatusCode(): int
+    {
+        return $this->status;
+    }
+
+    public function withStatus(int $code, string $reasonPhrase = ''): ResponseInterface
+    {
+        return $this;
+    }
+
+    public function getReasonPhrase(): string
+    {
+        return '';
+    }
+}
 
 final class EmailBuilder
 {

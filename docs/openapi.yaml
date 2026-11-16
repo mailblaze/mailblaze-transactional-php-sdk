@@ -21,7 +21,7 @@ paths:
         Provide body or template_id. When template_id is set, the API merges
         [A-Z0-9_] tags, including MAILBLAZE_PREHEADER, and base64-encodes the
         result itself. Attachments may be sent with either body or template_id.
-        send_at is interpreted in the customer account timezone.
+        send_at may include a timezone offset. An offset is honoured. A value with no offset is interpreted in the customer account timezone.
       requestBody:
         required: true
         content:
@@ -195,8 +195,8 @@ components:
           type: string
         send_at:
           type: string
-          description: Clock time interpreted in the customer timezone. The SDK sends Y-m-d\TH:i:s.
-          examples: ["2026-11-11T15:04:05"]
+          description: Clock time. The SDK sends Y-m-d\TH:i:sP so the offset is explicit. A value with no offset is interpreted in the customer timezone.
+          examples: ["2026-11-11T15:04:05+08:00"]
         attachments:
           type: array
           items:

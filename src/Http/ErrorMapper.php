@@ -24,13 +24,20 @@ final class ErrorMapper
         #[\SensitiveParameter]
         ?string $secret,
     ): MailBlazeException {
-        $code = isset($payload['code']) && is_string($payload['code']) ? $payload['code'] : null;
+        $code = self::code($payload['code'] ?? null);
         $error = isset($payload['error']) && is_string($payload['error'])
             ? $payload['error']
             : 'The Mail Blaze API request failed';
+        $error = Redactor::redact($error, $secret);
+        if (strlen($error) > 500) {
+            $error = self::truncateUtf8($error, 500);
+        }
         $message = $code === null ? $error : $error . ' (' . $code . ')';
 
         if ($code === '150.001' || ($code === null && ($status === 401 || $status === 403))) {
+            return new AuthenticationException($message, $status, $code, $error, $secret);
+        }
+        if ($code === null && $status === 400 && preg_match('/invalid api key/i', $error) === 1) {
             return new AuthenticationException($message, $status, $code, $error, $secret);
         }
         if ($code === '150.015') {
@@ -59,5 +66,26 @@ final class ErrorMapper
         }
 
         return new ApiException($message, $status, $code, $error, $secret);
+    }
+
+    private static function code(mixed $code): ?string
+    {
+        if (!is_string($code) || preg_match('/\A\d{3}\.\d{3}\z/', $code) !== 1) {
+            return null;
+        }
+
+        return $code;
+    }
+
+    private static function truncateUtf8(string $value, int $maxBytes): string
+    {
+        if (strlen($value) <= $maxBytes) {
+            return $value;
+        }
+        if (function_exists('mb_strcut')) {
+            return mb_strcut($value, 0, $maxBytes, 'UTF-8');
+        }
+
+        return substr($value, 0, $maxBytes);
     }
 }

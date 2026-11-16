@@ -34,8 +34,9 @@
         "symfony/http-client": "^7.1 || ^8.0"
     },
     "suggest": {
+        "guzzlehttp/guzzle": "Alternative PSR-18 client. The SDK applies the timeout, TLS settings, and no redirects.",
         "nyholm/psr7": "PSR-7 messages and PSR-17 factories.",
-        "symfony/http-client": "PSR-18 HTTP client. Required unless you inject another PSR-18 client. The SDK uses it to apply the timeout and TLS settings."
+        "symfony/http-client": "Preferred PSR-18 client. The SDK applies the timeout, TLS settings, and no redirects."
     },
     "autoload": {
         "psr-4": {

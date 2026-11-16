@@ -53,6 +53,29 @@ final class EmailTest extends SdkTestCase
         $email->mergeTags(['name' => 'Jane']);
     }
 
+    public function testRejectsEmptyHtmlAndANonScalarMergeTag(): void
+    {
+        $this->expectException(ValidationException::class);
+        Email::make()->html('   ');
+    }
+
+    public function testRejectsAnArrayMergeTagValue(): void
+    {
+        $email = Email::make()->templateId('template-1');
+
+        $this->expectException(ValidationException::class);
+        /** @phpstan-ignore argument.type */
+        $email->mergeTags(['NAME' => ['Jane']]);
+    }
+
+    public function testRejectsAMergeTagNameWithATrailingNewline(): void
+    {
+        $email = Email::make()->templateId('template-1');
+
+        $this->expectException(ValidationException::class);
+        $email->mergeTags(["NAME\n" => 'Jane']);
+    }
+
     public function testRejectsAnInvalidRecipient(): void
     {
         $this->expectException(ValidationException::class);
