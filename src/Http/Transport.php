@@ -7,11 +7,14 @@ namespace MailBlaze\Transactional\Http;
 use Http\Discovery\Psr17FactoryDiscovery;
 use MailBlaze\Transactional\Client;
 use MailBlaze\Transactional\Exception\ApiException;
+use MailBlaze\Transactional\Exception\ConfigurationException;
 use MailBlaze\Transactional\Exception\MailBlazeException;
+use MailBlaze\Transactional\Exception\RedactedException;
 use MailBlaze\Transactional\Exception\TransportException;
 use MailBlaze\Transactional\Exception\UnconfirmedSendException;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Client\ClientInterface;
+use Psr\Http\Client\NetworkExceptionInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -108,8 +111,8 @@ final class Transport
                 $request = $this->createRequest($method, $path, $body, $query);
             } catch (MailBlazeException $exception) {
                 throw $exception;
-            } catch (\Throwable) {
-                self::failTransport();
+            } catch (\Throwable $exception) {
+                self::failTransport(TransportException::REASON_CLIENT, $this->redacted($exception));
             }
 
             try {
@@ -124,13 +127,13 @@ final class Transport
 
             try {
                 $status = $response->getStatusCode();
-            } catch (\Throwable) {
-                self::failTransport();
+            } catch (\Throwable $exception) {
+                self::failTransport(TransportException::REASON_RESPONSE, $this->redacted($exception));
             }
 
             try {
                 $rawBody = $this->readBody($response);
-            } catch (TransportException) {
+            } catch (TransportException $exception) {
                 if ($method === 'POST' && $status >= 200 && $status < 300) {
                     self::unconfirmed($status);
                 }
@@ -146,7 +149,7 @@ final class Transport
                         'error' => 'The Mail Blaze API returned an unexpected response',
                     ], $this->apiKey());
                 }
-                self::failTransport();
+                throw $exception;
             }
 
             if ($status >= 300 && $status < 400) {
@@ -193,7 +196,7 @@ final class Transport
             return $decoded;
         }
 
-        self::failTransport();
+        self::failTransport(TransportException::REASON_UNKNOWN);
     }
 
     /**
@@ -231,8 +234,10 @@ final class Transport
             $chunked = self::isChunked($response);
             $stream = $response->getBody();
             $raw = (string) $stream;
-        } catch (\Throwable) {
-            self::failTransport();
+        } catch (TransportException $exception) {
+            throw $exception;
+        } catch (\Throwable $exception) {
+            self::failTransport(TransportException::REASON_RESPONSE, $this->redacted($exception));
         }
         if (self::streamLooksIncomplete($stream)) {
             self::failTransport();
@@ -439,12 +444,51 @@ final class Transport
     {
         try {
             return $this->httpClient->sendRequest($request);
-        } catch (\Throwable) {
+        } catch (\Throwable $exception) {
+            $reason = self::classify($exception);
             $this->logger?->error('Mail Blaze transactional API transport failure', [
                 'message' => 'The HTTP client could not complete the request',
+                'reason' => $reason,
             ]);
-            self::failTransport();
+            self::failTransport($reason, $this->redacted($exception));
         }
+    }
+
+    /**
+     * Sort an HTTP client failure into a short category from its class and messages.
+     * Only the category is derived here. The messages themselves are redacted separately.
+     */
+    private static function classify(\Throwable $exception): string
+    {
+        $text = '';
+        $network = false;
+        for ($current = $exception, $depth = 0; $current !== null && $depth < 5; $current = $current->getPrevious(), ++$depth) {
+            $text .= ' ' . $current->getMessage();
+            $network = $network || $current instanceof NetworkExceptionInterface;
+        }
+
+        if (preg_match('/timed?[ _-]?out|timeout|cURL error 28\b/i', $text) === 1) {
+            return TransportException::REASON_TIMEOUT;
+        }
+        if (preg_match('/resolve|getaddrinfo|name or service not known|no such host|nodename nor servname|cURL error 6\b/i', $text) === 1) {
+            return TransportException::REASON_DNS;
+        }
+        if (preg_match('/\bssl\b|\btls\b|certificate|cURL error (?:35|51|58|60|77|83|90|91)\b/i', $text) === 1) {
+            return TransportException::REASON_TLS;
+        }
+        if ($network || preg_match('/connect|refused|unreachable|reset by peer|cURL error (?:7|52|55|56)\b/i', $text) === 1) {
+            return TransportException::REASON_CONNECT;
+        }
+        if (!$exception instanceof \Psr\Http\Client\ClientExceptionInterface) {
+            return TransportException::REASON_CLIENT;
+        }
+
+        return TransportException::REASON_UNKNOWN;
+    }
+
+    private function redacted(\Throwable $exception): RedactedException
+    {
+        return new RedactedException($exception, SecretBag::get($this));
     }
 
     /**
@@ -528,13 +572,12 @@ final class Transport
             'connect_timeout' => $timeout,
             'http_errors' => false,
             'allow_redirects' => false,
+            // Stream the body so a stalled read after a successful send surfaces as an unconfirmed send.
+            // Guzzle sends streamed requests to its stream handler. Do not pass a "curl" option here:
+            // Guzzle 7 ignores it on that handler and Guzzle 8 rejects every request that carries it.
             'stream' => true,
             'verify' => !$allowInsecureTls,
         ];
-        // Keep chunked framing so a missing terminal chunk is not accepted as a complete body.
-        if (defined('CURLOPT_HTTP_TRANSFER_DECODING')) {
-            $options['curl'] = [\CURLOPT_HTTP_TRANSFER_DECODING => false];
-        }
         $client = new $class($options);
         if (!$client instanceof ClientInterface) {
             return null;
@@ -570,8 +613,11 @@ final class Transport
         }
         $scheme = strtolower($parts['scheme'] ?? '');
         $host = $parts['host'] ?? '';
-        if ($host === '' || ($scheme !== 'https' && $scheme !== 'http') || isset($parts['fragment']) || !self::isAcceptableHost($host)) {
+        if ($host === '' || ($scheme !== 'https' && $scheme !== 'http') || isset($parts['fragment'])) {
             self::rejectBaseUri();
+        }
+        if (!self::isAcceptableHost($host)) {
+            self::rejectBaseUriHost();
         }
         if ($scheme === 'http' && (!$allowHttp || !self::isLocalHttpHost($host))) {
             self::rejectHttpBaseUri();
@@ -610,6 +656,12 @@ final class Transport
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
             return self::isAllowedIp($host);
         }
+        // A hostname whose last label is numeric is an IP address in another notation, such as
+        // 0x7f.1, 2130706433, 127.1, or 0177.0.0.1. No public top-level domain is numeric.
+        $labels = explode('.', rtrim($host, '.'));
+        if (preg_match('/\A(?:0x[0-9a-f]*|[0-9]+)\z/i', (string) end($labels)) === 1) {
+            return false;
+        }
 
         return preg_match('/\A(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*\z/', $host) === 1;
     }
@@ -626,42 +678,47 @@ final class Transport
 
     private static function rejectEmptyApiKey(): never
     {
-        throw new TransportException('API key must not be empty');
+        throw new ConfigurationException('API key must not be empty');
     }
 
     private static function rejectMalformedApiKey(): never
     {
-        throw new TransportException('API key must be printable ASCII without spaces or control characters');
+        throw new ConfigurationException('API key must be printable ASCII without spaces or control characters');
     }
 
     private static function rejectUnmanagedClient(): never
     {
-        throw new TransportException('Install symfony/http-client or guzzlehttp/guzzle so the SDK can apply the timeout, or pass an HTTP client that already has one.');
+        throw new ConfigurationException('Install symfony/http-client or guzzlehttp/guzzle so the SDK can apply the timeout, or pass an HTTP client that already has one.');
     }
 
     private static function rejectRedirectingClient(): never
     {
-        throw new TransportException('Injected Guzzle clients must set allow_redirects to false so the API key is not forwarded to another host');
+        throw new ConfigurationException('Injected Guzzle clients must set allow_redirects to false so the API key is not forwarded to another host');
     }
 
     private static function rejectBaseUri(): never
     {
-        throw new TransportException('Base URI must be an https URL');
+        throw new ConfigurationException('Base URI must be an https URL');
+    }
+
+    private static function rejectBaseUriHost(): never
+    {
+        throw new ConfigurationException('Base URI host must be a hostname, a public IP address, or loopback. Private, link-local, reserved, and non-standard numeric IP hosts are rejected');
     }
 
     private static function rejectHttpBaseUri(): never
     {
-        throw new TransportException('HTTP is only allowed for a local development host when allowHttp is true');
+        throw new ConfigurationException('HTTP is only allowed for a local development host when allowHttp is true');
     }
 
     private static function rejectCredentialsInUri(): never
     {
-        throw new TransportException('Base URI must not contain credentials or a query string');
+        throw new ConfigurationException('Base URI must not contain credentials or a query string');
     }
 
     private static function rejectInsecureWithoutManagedClient(): never
     {
-        throw new TransportException('allowInsecureTls requires symfony/http-client or guzzlehttp/guzzle so certificate verification can be configured');
+        throw new ConfigurationException('allowInsecureTls requires symfony/http-client or guzzlehttp/guzzle so certificate verification can be configured');
     }
 
     private static function unconfirmed(int $status): never
@@ -674,12 +731,12 @@ final class Transport
 
     private static function missingHttpFactory(): never
     {
-        throw new TransportException('No PSR-17 factory was found. Install nyholm/psr7.');
+        throw new ConfigurationException('No PSR-17 factory was found. Install nyholm/psr7.');
     }
 
-    private static function failTransport(): never
+    private static function failTransport(string $reason = TransportException::REASON_RESPONSE, ?RedactedException $previous = null): never
     {
-        throw new TransportException('The Mail Blaze API request could not be completed');
+        throw TransportException::create('The Mail Blaze API request could not be completed (' . $reason . ')', $reason, $previous);
     }
 
     public function __serialize(): never

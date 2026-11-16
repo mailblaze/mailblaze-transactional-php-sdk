@@ -6,6 +6,8 @@ namespace MailBlaze\Transactional\Tests;
 
 use MailBlaze\Transactional\Attachment;
 use MailBlaze\Transactional\Exception\ApiException;
+use MailBlaze\Transactional\Exception\ConfigurationException;
+use MailBlaze\Transactional\Exception\RedactedException;
 use MailBlaze\Transactional\Exception\TransportException;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
@@ -58,6 +60,29 @@ final class ClientTest extends SdkTestCase
         $attachment = $attachments[0];
         self::assertSame('invoice.pdf', $attachment['name']);
         self::assertSame(base64_encode('pdf-bytes'), $attachment['data']);
+    }
+
+    public function testAQuotedLocalPartIsSentIntactInTheJsonBody(): void
+    {
+        $this->http->addResponse($this->jsonResponse(201, [
+            'status' => 'success',
+            'code' => '000.000',
+            'email_uid' => 'em_quoted',
+            'warning' => null,
+        ]));
+
+        $this->client()->emails()->send(
+            EmailBuilder::receipt()->to('"jane"@example.com', 'Jane Doe')->cc('"jane"@example.com', 'ops@example.com'),
+        );
+
+        $raw = $this->lastRequest()->getBody();
+        $raw->rewind();
+        $json = $raw->getContents();
+        $payload = $this->lastJson();
+
+        self::assertStringContainsString('"to_email":"\\"jane\\"@example.com"', $json);
+        self::assertSame('"jane"@example.com', $payload['to_email']);
+        self::assertSame('"jane"@example.com,ops@example.com', $payload['cc']);
     }
 
     public function testTemplateSendOmitsBodyAndSendsMergeTagsAsAnObject(): void
@@ -328,11 +353,11 @@ final class ClientTest extends SdkTestCase
         try {
             $this->client('');
             self::fail('An empty API key must be rejected');
-        } catch (TransportException $exception) {
+        } catch (ConfigurationException $exception) {
             self::assertSame('API key must not be empty', $exception->getMessage());
         }
 
-        $this->expectException(TransportException::class);
+        $this->expectException(ConfigurationException::class);
         \MailBlaze\Transactional\Client::create(
             'mb-secret-key-1112',
             baseUri: 'http://control.mailblaze.com/api',
@@ -344,7 +369,7 @@ final class ClientTest extends SdkTestCase
 
     public function testAllowHttpDoesNotPermitAPublicHost(): void
     {
-        $this->expectException(TransportException::class);
+        $this->expectException(ConfigurationException::class);
         \MailBlaze\Transactional\Client::create(
             'mb-secret-key-1112',
             baseUri: 'http://control.mailblaze.com/api',
@@ -562,7 +587,7 @@ final class ClientTest extends SdkTestCase
             $this->client()->emails()->send(EmailBuilder::receipt()->subject("\xFF"));
             self::fail('Invalid UTF-8 must be a validation error');
         } catch (\MailBlaze\Transactional\Exception\ValidationException $exception) {
-            self::assertSame('The request payload could not be encoded as JSON', $exception->getMessage());
+            self::assertSame('Subject must be valid UTF-8', $exception->getMessage());
         }
         self::assertSame([], $this->http->getRequests());
     }
@@ -585,7 +610,8 @@ final class ClientTest extends SdkTestCase
         try {
             $this->client("mb-secret-key-1112\x7F");
             self::fail('A control character in the API key must be rejected');
-        } catch (TransportException $exception) {
+        } catch (ConfigurationException $exception) {
+            self::assertStringNotContainsString('mb-secret-key-1112', $exception->getTraceAsString());
             self::assertStringNotContainsString('mb-secret-key-1112', $exception->getMessage());
             self::assertStringNotContainsString("\x7F", $exception->getMessage());
         }
@@ -620,7 +646,7 @@ final class ClientTest extends SdkTestCase
 
     public function testTheBaseUriRejectsAFragmentAndADisguisedHost(): void
     {
-        $this->expectException(TransportException::class);
+        $this->expectException(ConfigurationException::class);
         \MailBlaze\Transactional\Client::create(
             'mb-secret-key-1112',
             baseUri: 'https://control.mailblaze.com/api#key',
@@ -637,6 +663,12 @@ final class ClientTest extends SdkTestCase
             'https://192.168.1.10/api',
             'https://10.0.0.5/api',
             'https://[fe80::1]/api',
+            'https://0x7f.1/api',
+            'https://0x7f000001/api',
+            'https://2130706433/api',
+            'https://127.1/api',
+            'https://0177.0.0.1/api',
+            'https://10.1/api',
         ] as $baseUri) {
             try {
                 \MailBlaze\Transactional\Client::create(
@@ -647,8 +679,8 @@ final class ClientTest extends SdkTestCase
                     streamFactory: $this->factory,
                 );
                 self::fail('Private or link-local base URIs must be rejected: ' . $baseUri);
-            } catch (TransportException $exception) {
-                self::assertSame('Base URI must be an https URL', $exception->getMessage());
+            } catch (ConfigurationException $exception) {
+                self::assertStringStartsWith('Base URI host must be a hostname', $exception->getMessage());
             }
         }
     }
@@ -678,7 +710,7 @@ final class ClientTest extends SdkTestCase
             self::fail('GuzzleHttp\\Client must implement ClientInterface');
         }
 
-        $this->expectException(TransportException::class);
+        $this->expectException(ConfigurationException::class);
         $this->expectExceptionMessage('allow_redirects');
         \MailBlaze\Transactional\Client::create(
             'mb-secret-key-1112',
@@ -732,8 +764,13 @@ final class ClientTest extends SdkTestCase
             $client->emails()->send(EmailBuilder::receipt());
             self::fail('A client error must stay inside TransportException');
         } catch (TransportException $exception) {
-            self::assertNull($exception->getPrevious());
-            $rendered = $exception->getMessage() . $exception->getTraceAsString() . var_export($exception, true);
+            self::assertSame(TransportException::REASON_CLIENT, $exception->reason());
+            $previous = $exception->getPrevious();
+            self::assertInstanceOf(RedactedException::class, $previous);
+            self::assertSame(\TypeError::class, $previous->originalClass());
+            self::assertSame('TypeError: header [redacted]', $previous->getMessage());
+            $rendered = $exception->getMessage() . $exception->getTraceAsString() . var_export($exception, true)
+                . (string) $exception . $previous->getTraceAsString() . (string) $previous;
             self::assertStringNotContainsString('mb-secret-key-1112', $rendered);
         }
     }
@@ -746,7 +783,8 @@ final class ClientTest extends SdkTestCase
             $this->client()->emails()->send(EmailBuilder::receipt());
             self::fail('A broken status accessor must stay inside TransportException');
         } catch (TransportException $exception) {
-            self::assertNull($exception->getPrevious());
+            self::assertSame(TransportException::REASON_RESPONSE, $exception->reason());
+            self::assertInstanceOf(RedactedException::class, $exception->getPrevious());
             $rendered = $exception->getMessage() . $exception->getTraceAsString() . var_export($exception, true);
             self::assertStringNotContainsString('mb-secret-key-1112', $rendered);
         }
@@ -1135,7 +1173,9 @@ final class ClientTest extends SdkTestCase
 
     public function testANonFiniteTimeoutIsRejected(): void
     {
+        // ConfigurationException extends \InvalidArgumentException, so 0.1.x handlers still match.
         $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(ConfigurationException::class);
         \MailBlaze\Transactional\Client::create(
             'mb-secret-key-1112',
             timeout: \NAN,

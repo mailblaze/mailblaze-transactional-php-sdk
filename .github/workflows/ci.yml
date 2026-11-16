@@ -6,26 +6,65 @@ on:
 
 jobs:
   quality:
-    name: PHP ${{ matrix.php }}
+    name: PHP ${{ matrix.php }} (${{ matrix.http }}${{ matrix.coverage != 'none' && ', coverage' || '' }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         php: ['8.3', '8.4', '8.5']
+        http: ['symfony']
+        coverage: ['none']
+        include:
+          # The SDK builds a Guzzle client when Symfony is not installed. Run its real-HTTP tests on both majors.
+          - php: '8.3'
+            http: 'guzzle7'
+            coverage: 'none'
+          - php: '8.5'
+            http: 'guzzle8'
+            coverage: 'none'
+          # Without Symfony, the SDK discovers and builds the Guzzle client itself.
+          - php: '8.5'
+            http: 'guzzle8-only'
+            coverage: 'none'
+          - php: '8.4'
+            http: 'symfony'
+            coverage: 'pcov'
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          coverage: none
+          coverage: ${{ matrix.coverage }}
           tools: composer:v2
+      - name: Add Guzzle 7
+        if: matrix.http == 'guzzle7'
+        run: composer require --dev --no-update "guzzlehttp/guzzle:^7.9"
+      - name: Add Guzzle 8
+        if: matrix.http == 'guzzle8' || matrix.http == 'guzzle8-only'
+        run: composer require --dev --no-update "guzzlehttp/guzzle:^8.0"
+      - name: Remove Symfony HTTP client
+        if: matrix.http == 'guzzle8-only'
+        run: composer remove --dev --no-update symfony/http-client
       - name: Install dependencies
         run: composer update --no-interaction --prefer-dist --no-progress
       - name: Audit dependencies
         run: composer audit
       - name: Coding style
         run: vendor/bin/php-cs-fixer fix --dry-run --diff
+      # PHPStan runs against the default dev dependencies. The Guzzle jobs swap the HTTP
+      # client, which changes the types PHPStan sees, so they only run the tests.
       - name: PHPStan
-        run: vendor/bin/phpstan analyse --no-progress
+        if: matrix.http == 'symfony'
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
       - name: Tests
+        if: matrix.coverage == 'none'
         run: vendor/bin/phpunit
+      - name: Tests with coverage
+        if: matrix.coverage != 'none'
+        run: vendor/bin/phpunit --coverage-text --coverage-clover=coverage.xml
+      - name: Upload coverage report
+        if: matrix.coverage != 'none'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml

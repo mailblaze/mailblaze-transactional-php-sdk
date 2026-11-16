@@ -12,6 +12,12 @@ use MailBlaze\Transactional\Http\Values;
 
 final class Emails
 {
+    /** The API returns at least this many records per page. A smaller perPage is raised to it. */
+    public const MIN_PER_PAGE = 10;
+
+    /** The API returns at most this many records per page. A larger perPage is lowered to it. */
+    public const MAX_PER_PAGE = 50;
+
     public function __construct(private readonly Transport $transport) {}
 
     public function send(Email $email): SendResult
@@ -34,13 +40,12 @@ final class Emails
         if ($page < 1) {
             throw new ValidationException('page must be at least 1');
         }
-        if ($perPage < 1) {
-            throw new ValidationException('perPage must be at least 1');
-        }
 
         return EmailPage::fromPayload($this->transport->submit('GET', '/transactional', null, [
             'page' => $page,
-            'per_page' => $perPage,
+            // The API returns 10 records for a smaller value and 50 for a larger one. Clamp to
+            // the same range so the request matches what comes back.
+            'per_page' => max(self::MIN_PER_PAGE, min(self::MAX_PER_PAGE, $perPage)),
         ]));
     }
 

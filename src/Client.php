@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MailBlaze\Transactional;
 
+use MailBlaze\Transactional\Exception\ConfigurationException;
 use MailBlaze\Transactional\Http\Transport;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
@@ -12,7 +13,7 @@ use Psr\Log\LoggerInterface;
 
 final class Client
 {
-    public const VERSION = '0.1.1';
+    public const VERSION = '0.2.0';
 
     public const DEFAULT_BASE_URI = 'https://control.mailblaze.com/api';
 
@@ -90,7 +91,7 @@ final class Client
      */
     private static function rejectInsecureFlagWithInjectedClient(): void
     {
-        throw new \InvalidArgumentException('allowInsecureTls applies only when the SDK builds the HTTP client. Configure TLS on the injected client instead.');
+        throw new ConfigurationException('allowInsecureTls applies only when the SDK builds the HTTP client. Configure TLS on the injected client instead.');
     }
 
     /**
@@ -98,7 +99,7 @@ final class Client
      */
     private static function rejectTimeout(): void
     {
-        throw new \InvalidArgumentException('timeout must be greater than zero and no more than 120 seconds');
+        throw new ConfigurationException('timeout must be greater than zero and no more than 120 seconds');
     }
 
     /**
@@ -106,6 +107,6 @@ final class Client
      */
     private static function rejectRetrySettings(): void
     {
-        throw new \InvalidArgumentException('getRetryLimit must be from 0 to 5 and retryDelayMs must be from 0 to 5000');
+        throw new ConfigurationException('getRetryLimit must be from 0 to 5 and retryDelayMs must be from 0 to 5000');
     }
 }

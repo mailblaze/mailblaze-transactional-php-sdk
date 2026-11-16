@@ -34,6 +34,7 @@ final class ErrorMapper
         }
         $message = $code === null ? $error : $error . ' (' . $code . ')';
 
+        // 150.001: sending is turned off for the account. Not a credit problem, so not a QuotaException.
         if ($code === '150.001' || ($code === null && ($status === 401 || $status === 403))) {
             return new AuthenticationException($message, $status, $code, $error, $secret);
         }
@@ -54,6 +55,10 @@ final class ErrorMapper
         }
         if ($code === '150.007' || $code === '150.016') {
             return new SendFailedException($message, $status, $code, $error, $secret);
+        }
+        // 150.008: the list could not be loaded. A server-side failure whatever the HTTP status.
+        if ($code === '150.008') {
+            return new ApiException($message, $status, $code, $error, $secret);
         }
         if ($status === 401 || $status === 403) {
             return new AuthenticationException($message, $status, $code, $error, $secret);

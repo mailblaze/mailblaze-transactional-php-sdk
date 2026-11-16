@@ -90,9 +90,60 @@ final class EmailRecord
         return $this->category;
     }
 
+    /**
+     * The raw send_at value from the API, such as "2026-11-16 2:36:59 PM" or a Unix timestamp.
+     *
+     * @see self::sendAtDateTime() for a parsed value
+     */
     public function sendAt(): int|string|null
     {
         return $this->sendAt;
+    }
+
+    /**
+     * send_at as a DateTimeImmutable, or null when it is missing or in a format the SDK does not recognise.
+     *
+     * The API returns send_at without a UTC offset, for example "2026-11-16 2:36:59 PM". In testing
+     * that clock time was UTC, so a value without an offset is read in UTC unless you pass another
+     * timezone. A value with an offset, or a Unix timestamp, keeps its own instant.
+     */
+    public function sendAtDateTime(?\DateTimeZone $assumedTimezone = null): ?\DateTimeImmutable
+    {
+        $value = $this->sendAt;
+        if ($value === null) {
+            return null;
+        }
+        if (is_int($value) || preg_match('/\A[0-9]{1,12}\z/', $value) === 1) {
+            return (new \DateTimeImmutable('@' . $value))->setTimezone(new \DateTimeZone('UTC'));
+        }
+
+        $value = trim($value);
+        $timezone = $assumedTimezone ?? new \DateTimeZone('UTC');
+        foreach (['!Y-m-d\TH:i:sP', '!Y-m-d H:i:sP', '!Y-m-d\TH:i:s.uP'] as $format) {
+            $parsed = self::parse($format, $value, null);
+            if ($parsed !== null) {
+                return $parsed;
+            }
+        }
+        foreach (['!Y-m-d g:i:s A', '!Y-m-d H:i:s', '!Y-m-d\TH:i:s'] as $format) {
+            $parsed = self::parse($format, $value, $timezone);
+            if ($parsed !== null) {
+                return $parsed;
+            }
+        }
+
+        return null;
+    }
+
+    private static function parse(string $format, string $value, ?\DateTimeZone $timezone): ?\DateTimeImmutable
+    {
+        $parsed = \DateTimeImmutable::createFromFormat($format, $value, $timezone);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if ($parsed === false || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) {
+            return null;
+        }
+
+        return $parsed;
     }
 
     public function status(): string

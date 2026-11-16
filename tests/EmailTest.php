@@ -33,7 +33,7 @@ final class EmailTest extends SdkTestCase
     public function testRejectsHtmlCombinedWithATemplate(): void
     {
         $this->expectException(ValidationException::class);
-        Email::make()
+        $unused = Email::make()
             ->to('jane@example.com', 'Jane Doe')
             ->from('billing@example.com', 'Acme')
             ->subject('Hello')
@@ -50,13 +50,13 @@ final class EmailTest extends SdkTestCase
             ->templateId('template-1');
 
         $this->expectException(ValidationException::class);
-        $email->mergeTags(['name' => 'Jane']);
+        $unused = $email->mergeTags(['name' => 'Jane']);
     }
 
     public function testRejectsEmptyHtmlAndANonScalarMergeTag(): void
     {
         $this->expectException(ValidationException::class);
-        Email::make()->html('   ');
+        $unused = Email::make()->html('   ');
     }
 
     public function testRejectsAnArrayMergeTagValue(): void
@@ -65,7 +65,7 @@ final class EmailTest extends SdkTestCase
 
         $this->expectException(ValidationException::class);
         /** @phpstan-ignore argument.type */
-        $email->mergeTags(['NAME' => ['Jane']]);
+        $unused = $email->mergeTags(['NAME' => ['Jane']]);
     }
 
     public function testRejectsAMergeTagNameWithATrailingNewline(): void
@@ -73,13 +73,13 @@ final class EmailTest extends SdkTestCase
         $email = Email::make()->templateId('template-1');
 
         $this->expectException(ValidationException::class);
-        $email->mergeTags(["NAME\n" => 'Jane']);
+        $unused = $email->mergeTags(["NAME\n" => 'Jane']);
     }
 
     public function testRejectsAnInvalidRecipient(): void
     {
         $this->expectException(ValidationException::class);
-        Email::make()->to('not-an-email', 'Jane Doe');
+        $unused = Email::make()->to('not-an-email', 'Jane Doe');
     }
 
     public function testRequiresContentBeforeSending(): void
@@ -130,6 +130,7 @@ final class EmailTest extends SdkTestCase
         yield '150.006' => ['150.006', 422, \MailBlaze\Transactional\Exception\ValidationException::class];
         yield '150.007' => ['150.007', 422, \MailBlaze\Transactional\Exception\SendFailedException::class];
         yield '150.008' => ['150.008', 503, \MailBlaze\Transactional\Exception\ApiException::class];
+        yield '150.008 at HTTP 400' => ['150.008', 400, \MailBlaze\Transactional\Exception\ApiException::class];
         yield '150.009' => ['150.009', 404, \MailBlaze\Transactional\Exception\NotFoundException::class];
         yield '150.010' => ['150.010', 403, \MailBlaze\Transactional\Exception\DomainNotVerifiedException::class];
         yield '150.011' => ['150.011', 400, \MailBlaze\Transactional\Exception\ValidationException::class];

@@ -7,6 +7,17 @@ namespace MailBlaze\Transactional;
 use DateTimeInterface;
 use MailBlaze\Transactional\Exception\ValidationException;
 
+/**
+ * An email to send. Email is immutable: every method returns a new Email and leaves the
+ * original unchanged, so a shared base email can be reused safely.
+ *
+ *     $base = Email::make()->from('billing@example.com', 'Acme')->subject('Receipt');
+ *     $a = $base->to('a@example.com', 'A')->html('<p>A</p>');
+ *     $b = $base->to('b@example.com', 'B')->html('<p>B</p>'); // $a still goes to A
+ *
+ * Always use the returned value. A call whose result is discarded has no effect. The methods
+ * carry #[\NoDiscard], so PHP 8.5 and static analysers warn about a discarded result.
+ */
 final class Email
 {
     private ?string $toEmail = null;
@@ -50,127 +61,164 @@ final class Email
         return new self();
     }
 
+    #[\NoDiscard]
     public function to(string $email, string $name): self
     {
-        $this->toEmail = $this->emailAddress($email, 'Recipient email');
-        $this->toName = $this->headerValue($name, 'Recipient name');
+        $clone = clone $this;
+        $clone->toEmail = self::emailAddress($email, 'Recipient email');
+        $clone->toName = self::headerValue($name, 'Recipient name');
 
-        return $this;
+        return $clone;
     }
 
+    #[\NoDiscard]
     public function from(string $email, string $name): self
     {
-        $this->fromEmail = $this->emailAddress($email, 'From email');
-        $this->fromName = $this->headerValue($name, 'From name');
+        $clone = clone $this;
+        $clone->fromEmail = self::emailAddress($email, 'From email');
+        $clone->fromName = self::headerValue($name, 'From name');
 
-        return $this;
+        return $clone;
     }
 
+    #[\NoDiscard]
     public function subject(string $subject): self
     {
-        $this->subject = $this->headerValue($subject, 'Subject');
+        $clone = clone $this;
+        $clone->subject = self::headerValue($subject, 'Subject');
 
-        return $this;
+        return $clone;
     }
 
+    #[\NoDiscard]
     public function html(string $html): self
     {
+        self::assertUtf8($html, 'html()');
         if (trim($html) === '') {
             throw new ValidationException('html() must not be empty');
         }
         if ($this->templateId !== null || $this->mergeTags !== []) {
             throw new ValidationException('html() cannot be combined with templateId()');
         }
-        $this->html = $html;
+        $clone = clone $this;
+        $clone->html = $html;
 
-        return $this;
+        return $clone;
     }
 
+    #[\NoDiscard]
     public function text(string $text): self
     {
+        self::assertUtf8($text, 'text()');
         if ($this->templateId !== null) {
             throw new ValidationException('text() cannot be combined with templateId()');
         }
-        $this->text = $text;
+        $clone = clone $this;
+        $clone->text = $text;
 
-        return $this;
+        return $clone;
     }
 
+    #[\NoDiscard]
     public function templateId(string $templateId): self
     {
         if ($this->html !== null || $this->text !== null) {
             throw new ValidationException('templateId() cannot be combined with html() or text()');
         }
-        $this->templateId = $this->headerValue($templateId, 'Template id');
+        $clone = clone $this;
+        $clone->templateId = self::headerValue($templateId, 'Template id');
 
-        return $this;
+        return $clone;
     }
 
     /**
      * @param array<int|string, bool|float|int|string|null|\Stringable> $tags
      */
+    #[\NoDiscard]
     public function mergeTags(array $tags): self
     {
         if ($this->html !== null || $this->text !== null) {
             throw new ValidationException('mergeTags() cannot be combined with html() or text()');
         }
 
+        $clone = clone $this;
         foreach ($tags as $key => $value) {
             $name = is_int($key) ? (string) $key : $key;
             if (preg_match('/\A[A-Z0-9_]+\z/', $name) !== 1) {
                 throw new ValidationException('Merge tag names must match [A-Z0-9_]');
             }
-            $this->mergeTags[$name] = self::mergeTagValue($value);
+            $clone->mergeTags[$name] = self::mergeTagValue($value);
         }
 
-        return $this;
+        return $clone;
     }
 
+    #[\NoDiscard]
     public function replyTo(string $email, ?string $name = null): self
     {
-        $this->replyToEmail = $this->emailAddress($email, 'Reply-to email');
-        $this->replyToName = $name === null ? null : $this->headerValue($name, 'Reply-to name');
+        $clone = clone $this;
+        $clone->replyToEmail = self::emailAddress($email, 'Reply-to email');
+        $clone->replyToName = $name === null ? null : self::headerValue($name, 'Reply-to name');
 
-        return $this;
+        return $clone;
     }
 
+    /**
+     * Adds Cc addresses. Each call appends to the addresses already set.
+     */
+    #[\NoDiscard]
     public function cc(string ...$addresses): self
     {
+        $clone = clone $this;
         foreach ($addresses as $address) {
-            $this->cc[] = $this->emailAddress($address, 'Cc email');
+            $clone->cc[] = self::emailAddress($address, 'Cc email');
         }
 
-        return $this;
+        return $clone;
     }
 
+    /**
+     * Adds Bcc addresses. Each call appends to the addresses already set.
+     */
+    #[\NoDiscard]
     public function bcc(string ...$addresses): self
     {
+        $clone = clone $this;
         foreach ($addresses as $address) {
-            $this->bcc[] = $this->emailAddress($address, 'Bcc email');
+            $clone->bcc[] = self::emailAddress($address, 'Bcc email');
         }
 
-        return $this;
+        return $clone;
     }
 
+    #[\NoDiscard]
     public function category(string $category): self
     {
-        $this->category = $this->headerValue($category, 'Category');
+        $clone = clone $this;
+        $clone->category = self::headerValue($category, 'Category');
 
-        return $this;
+        return $clone;
     }
 
+    #[\NoDiscard]
     public function sendAt(DateTimeInterface $sendAt): self
     {
-        $this->sendAt = \DateTimeImmutable::createFromInterface($sendAt);
+        $clone = clone $this;
+        $clone->sendAt = \DateTimeImmutable::createFromInterface($sendAt);
 
-        return $this;
+        return $clone;
     }
 
+    /**
+     * Adds an attachment. Each call appends to the attachments already set.
+     */
+    #[\NoDiscard]
     public function attach(Attachment $attachment): self
     {
-        $this->attachments[] = $attachment;
+        $clone = clone $this;
+        $clone->attachments[] = $attachment;
 
-        return $this;
+        return $clone;
     }
 
     /**
@@ -251,10 +299,22 @@ final class Email
         return $object;
     }
 
-    private function headerValue(string $value, string $label): string
+    private static function headerValue(string $value, string $label): string
     {
-        if (preg_match('/\p{Cc}|\x{85}|\x{2028}|\x{2029}/u', $value) === 1) {
+        self::assertUtf8($value, $label);
+        if (preg_match('/[\r\n]|\x{85}|\x{2028}|\x{2029}/u', $value) === 1) {
             throw new ValidationException($label . ' must not contain line breaks');
+        }
+        if (preg_match('/\p{Cc}/u', $value) === 1) {
+            throw new ValidationException($label . ' must not contain control characters');
+        }
+        // Bidirectional embeddings, overrides, and isolates (U+202A-U+202E, U+2066-U+2069) and
+        // invisible characters (U+200B, U+2060-U+2064, U+FEFF) can disguise a subject or name, for
+        // example "invoice\u{202E}fdp.exe". The direction marks LRM (U+200E), RLM (U+200F), and
+        // ALM (U+061C) are allowed because Hebrew and Arabic text uses them normally, and the
+        // zero-width joiners (U+200C, U+200D) are allowed because emoji and several scripts need them.
+        if (preg_match('/[\x{200B}\x{202A}-\x{202E}\x{2060}-\x{2064}\x{2066}-\x{2069}\x{FEFF}]/u', $value) === 1) {
+            throw new ValidationException($label . ' must not contain bidirectional override or invisible characters');
         }
 
         $trimmed = trim($value);
@@ -265,14 +325,29 @@ final class Email
         return $trimmed;
     }
 
-    private function emailAddress(string $value, string $label): string
+    private static function emailAddress(string $value, string $label): string
     {
-        $value = $this->headerValue($value, $label);
+        $value = self::headerValue($value, $label);
         if (filter_var($value, FILTER_VALIDATE_EMAIL) === false) {
             throw new ValidationException($label . ' must be a valid email address');
         }
+        // FILTER_VALIDATE_EMAIL accepts quoted local parts such as "a,b"@example.com. Cc and Bcc are
+        // sent as one comma-separated string, and the display name is a separate field, so a comma,
+        // semicolon, or angle bracket would split or disguise an address. A quoted local part without
+        // them, such as "jane"@example.com, is valid and is sent unchanged.
+        if (strpbrk($value, ',;<>') !== false) {
+            throw new ValidationException($label . ' must not contain commas, semicolons, or angle brackets');
+        }
 
         return $value;
+    }
+
+    private static function assertUtf8(string $value, string $label): void
+    {
+        // preg_match() with /u returns false for invalid UTF-8, and does not need ext-mbstring.
+        if (preg_match('//u', $value) !== 1) {
+            throw new ValidationException($label . ' must be valid UTF-8');
+        }
     }
 
     private static function mergeTagValue(mixed $value): string
@@ -283,14 +358,22 @@ final class Email
         if ($value === null) {
             return '';
         }
-        if (is_int($value) || is_string($value)) {
+        if (is_int($value)) {
             return (string) $value;
+        }
+        if (is_string($value)) {
+            self::assertUtf8($value, 'Merge tag value');
+
+            return $value;
         }
         if (is_float($value) && is_finite($value)) {
             return (string) $value;
         }
         if ($value instanceof \Stringable) {
-            return (string) $value;
+            $string = (string) $value;
+            self::assertUtf8($string, 'Merge tag value');
+
+            return $string;
         }
 
         throw new ValidationException('Merge tag values must be scalar');

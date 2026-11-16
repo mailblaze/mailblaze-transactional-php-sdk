@@ -23,11 +23,12 @@ class MailBlazeException extends RuntimeException
         ?string $errorMessage = null,
         #[\SensitiveParameter]
         ?string $secret = null,
+        ?\Throwable $previous = null,
     ) {
         $this->httpStatus = $httpStatus;
         $this->errorCode = self::publicErrorCode($errorCode, $secret);
         $this->errorMessage = $errorMessage === null ? null : Redactor::redact($errorMessage, $secret);
-        parent::__construct(Redactor::redact($message, $secret));
+        parent::__construct(Redactor::redact($message, $secret), 0, $previous);
         if ($secret !== null && $secret !== '') {
             SecretBag::store($this, $secret);
         }
