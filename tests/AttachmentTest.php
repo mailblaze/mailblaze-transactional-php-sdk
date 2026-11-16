@@ -26,10 +26,39 @@ final class AttachmentTest extends SdkTestCase
         }
     }
 
-    public function testRejectsAFilenameWithAPathOrLineBreak(): void
+    public function testRejectsAFilenameWithALineBreak(): void
     {
         $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Attachment filename must not contain line breaks or control characters');
         Attachment::fromBytes('hello', "invoice\r\n.pdf");
+    }
+
+    public function testRejectsAFilenameWithATab(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Attachment filename must not contain line breaks or control characters');
+        Attachment::fromBytes('hello', "invoice\t.pdf");
+    }
+
+    public function testRejectsAFilenameThatContainsAPath(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Attachment filename must not include a path');
+        Attachment::fromBytes('hello', 'invoices/invoice.pdf');
+    }
+
+    public function testRejectsAFilenameWithAHiddenDirectionMark(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Attachment filename must not contain hidden or formatting characters');
+        Attachment::fromBytes('hello', "invoice\u{200E}.pdf");
+    }
+
+    public function testRejectsAFilenameWithABidirectionalOverride(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Attachment filename must not contain hidden or formatting characters');
+        Attachment::fromBytes('hello', "invoice\u{202E}fdp.pdf");
     }
 
     public function testRejectsAnEncodedPayloadOverTenMebibytesBeforeTheRequest(): void

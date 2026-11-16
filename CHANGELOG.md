@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-17
+
+### Changed
+
+- Attachment filename rejections have separate messages: "must not include a path", "must not contain line breaks or control characters", and "must not contain hidden or formatting characters". The same filenames are rejected, and the exception is still a `ValidationException`, but code that matched the old "must not include a path or line breaks" text must be updated.
+- README states each behaviour once. It names the HTTP clients the SDK builds, the retry options, `100.001`, and the filename rules. The README documents that a template cannot be combined with `html()` or `text()`.
+
 ## [0.2.0] - 2026-11-17
 
 This version has breaking changes, marked **BREAKING** below. The README has the same notes with examples.
@@ -120,7 +127,8 @@ This version has breaking changes, marked **BREAKING** below. The README has the
 - Serialized exceptions omit the API key and the stack trace. The client cannot be serialized.
 - `var_export()` does not include the API key. The key is kept off the object.
 
-[Unreleased]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.0...HEAD
+[Unreleased]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.1...HEAD
+[0.2.1]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.1.1...0.2.0
 [0.1.1]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.1.0...0.1.1
 [0.1.0]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/releases/tag/0.1.0

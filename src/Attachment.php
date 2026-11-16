@@ -78,8 +78,15 @@ final class Attachment
         if (preg_match('//u', $filename) !== 1) {
             throw new ValidationException('Attachment filename must be valid UTF-8');
         }
-        if (preg_match('/\p{Cc}|\p{Cf}|\x{85}|\x{2028}|\x{2029}/u', $filename) === 1 || str_contains($filename, '/') || str_contains($filename, '\\')) {
-            throw new ValidationException('Attachment filename must not include a path or line breaks');
+        if (str_contains($filename, '/') || str_contains($filename, '\\')) {
+            throw new ValidationException('Attachment filename must not include a path');
+        }
+        if (preg_match('/\p{Cc}|\x{85}|\x{2028}|\x{2029}/u', $filename) === 1) {
+            throw new ValidationException('Attachment filename must not contain line breaks or control characters');
+        }
+        // Format characters include bidirectional overrides such as U+202E, which can disguise an extension.
+        if (preg_match('/\p{Cf}/u', $filename) === 1) {
+            throw new ValidationException('Attachment filename must not contain hidden or formatting characters');
         }
 
         $filename = trim($filename);
