@@ -105,9 +105,13 @@ $result = $client->emails()->send(
 
 ## Attachments, copies, and scheduling
 
-In testing against the live API in November 2026, `sendAt()` was ignored and the message went out immediately. `cc()` and `replyTo()` were not applied to the delivered message. `bcc()` could not be confirmed. Attachments arrived as `text/plain`. `attachments()` returned an empty list. The SDK still sends these fields as [docs/openapi.yaml](docs/openapi.yaml) describes.
+> **Known limitation:** The Mail Blaze API does not currently apply `cc()` or `replyTo()` to the delivered message. The SDK sends these fields as [docs/openapi.yaml](docs/openapi.yaml) describes.
 
-An attachment can be up to 10 MiB of base64, about 7.5 MiB of file bytes. A larger file is rejected before the request. `attach()`, `cc()`, and `bcc()` add to the values already set. `sendAt()` takes a `DateTimeInterface` and is sent as `Y-m-d\TH:i:sP`, including the timezone offset.
+`bcc()` recipients receive the email, and their addresses are not shown to the other recipients.
+
+An attachment can be up to 10 MiB of base64, about 7.5 MiB of file bytes. A larger file is rejected before the request. The API detects each attachment's content type from its bytes. `attach()`, `cc()`, and `bcc()` add to the values already set.
+
+`sendAt()` takes a `DateTimeInterface` and is sent as `Y-m-d\TH:i:sP`, including the timezone offset. The API holds the email until that time. Omit `sendAt()`, or pass a time in the past, to send immediately.
 
 ```php
 use MailBlaze\Transactional\Attachment;
@@ -129,6 +133,8 @@ $files = $client->emails()->attachments($uid);
 ```
 
 `perPage` is clamped to 10–50. The default is 10. `page` must be at least 1. An empty list is a success response with code `050.001`.
+
+`get()` returns an `EmailRecord` that includes `body()` and `plainText()`. When no `text()` was sent, the API generates the plain text from the HTML. `list()` returns summaries without the body or plain text. `attachments()` returns each stored file as an array with its `name` and `data`, or an empty list when the email has none.
 
 `EmailRecord::sendAt()` returns the raw API value, such as `2026-11-16 2:36:59 PM`. `sendAtDateTime()` parses it into a `DateTimeImmutable`, or returns `null` when it does not recognise the format. The API value has no timezone offset and is read as UTC unless you pass another `DateTimeZone`.
 

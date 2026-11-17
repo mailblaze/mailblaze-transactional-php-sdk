@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- README reflects the current Mail Blaze API: `sendAt()` holds an email until it is due, attachment content types are detected from the file bytes, `attachments()` returns the stored files, and `get()` returns the plain text. SDK behaviour is unchanged.
+- README lists `cc()` and `replyTo()` not being applied to the delivered message as the only known API limitation, and states that `bcc()` recipients receive the email without their addresses being shown to other recipients.
+
+### Removed
+
+- README statements that `sendAt()` sends immediately, that attachments arrive as `text/plain`, and that `attachments()` returns an empty list.
+
 ## [0.2.1] - 2026-11-17
 
 ### Changed
