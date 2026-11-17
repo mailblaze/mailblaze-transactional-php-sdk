@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-17
+
 ### Changed
 
 - README reflects the current Mail Blaze API: `sendAt()` holds an email until it is due, attachment content types are detected from the file bytes, `attachments()` returns the stored files, and `get()` returns the plain text. SDK behaviour is unchanged.
@@ -136,7 +138,8 @@ This version has breaking changes, marked **BREAKING** below. The README has the
 - Serialized exceptions omit the API key and the stack trace. The client cannot be serialized.
 - `var_export()` does not include the API key. The key is kept off the object.
 
-[Unreleased]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.1...HEAD
+[Unreleased]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.2...HEAD
+[0.2.2]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.1.1...0.2.0
 [0.1.1]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.1.0...0.1.1
