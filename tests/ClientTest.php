@@ -44,9 +44,9 @@ final class ClientTest extends SdkTestCase
         self::assertSame('POST', $request->getMethod());
         self::assertSame('application/json', $request->getHeaderLine('Content-Type'));
         self::assertStringNotContainsString('charset', strtolower($request->getHeaderLine('Content-Type')));
-        self::assertSame('mb-secret-key-1112', $request->getHeaderLine('Authorization'));
+        self::assertSame('mb-test-key', $request->getHeaderLine('Authorization'));
         self::assertStringNotContainsString('Bearer', $request->getHeaderLine('Authorization'));
-        self::assertStringNotContainsString('mb-secret-key-1112', (string) $request->getUri());
+        self::assertStringNotContainsString('mb-test-key', (string) $request->getUri());
         self::assertSame(base64_encode($html), $payload['body']);
         self::assertSame(base64_encode($text), $payload['plain_text']);
         self::assertStringNotContainsString("\n", (string) $payload['body']);
@@ -359,7 +359,7 @@ final class ClientTest extends SdkTestCase
 
         $this->expectException(ConfigurationException::class);
         \MailBlaze\Transactional\Client::create(
-            'mb-secret-key-1112',
+            'mb-test-key',
             baseUri: 'http://control.mailblaze.com/api',
             httpClient: $this->http,
             requestFactory: $this->factory,
@@ -371,7 +371,7 @@ final class ClientTest extends SdkTestCase
     {
         $this->expectException(ConfigurationException::class);
         \MailBlaze\Transactional\Client::create(
-            'mb-secret-key-1112',
+            'mb-test-key',
             baseUri: 'http://control.mailblaze.com/api',
             allowHttp: true,
             httpClient: $this->http,
@@ -396,7 +396,7 @@ final class ClientTest extends SdkTestCase
         ]));
 
         $client = \MailBlaze\Transactional\Client::create(
-            'mb-secret-key-1112',
+            'mb-test-key',
             baseUri: 'http://control.mailblaze.local:8080/api',
             allowHttp: true,
             httpClient: $this->http,
@@ -445,7 +445,7 @@ final class ClientTest extends SdkTestCase
         $this->client(logger: $logger)->emails()->send(EmailBuilder::receipt());
 
         $encoded = json_encode($logger->records, JSON_THROW_ON_ERROR);
-        self::assertStringNotContainsString('mb-secret-key-1112', $encoded);
+        self::assertStringNotContainsString('mb-test-key', $encoded);
         self::assertStringNotContainsString($html, $encoded);
         self::assertStringNotContainsString(base64_encode($html), $encoded);
         self::assertNotSame([], $logger->records);
@@ -608,11 +608,11 @@ final class ClientTest extends SdkTestCase
     public function testAControlCharacterInTheApiKeyIsRejectedBeforeTheRequest(): void
     {
         try {
-            $this->client("mb-secret-key-1112\x7F");
+            $this->client("mb-test-key\x7F");
             self::fail('A control character in the API key must be rejected');
         } catch (ConfigurationException $exception) {
-            self::assertStringNotContainsString('mb-secret-key-1112', $exception->getTraceAsString());
-            self::assertStringNotContainsString('mb-secret-key-1112', $exception->getMessage());
+            self::assertStringNotContainsString('mb-test-key', $exception->getTraceAsString());
+            self::assertStringNotContainsString('mb-test-key', $exception->getMessage());
             self::assertStringNotContainsString("\x7F", $exception->getMessage());
         }
         self::assertSame([], $this->http->getRequests());
@@ -648,7 +648,7 @@ final class ClientTest extends SdkTestCase
     {
         $this->expectException(ConfigurationException::class);
         \MailBlaze\Transactional\Client::create(
-            'mb-secret-key-1112',
+            'mb-test-key',
             baseUri: 'https://control.mailblaze.com/api#key',
             httpClient: $this->http,
             requestFactory: $this->factory,
@@ -672,7 +672,7 @@ final class ClientTest extends SdkTestCase
         ] as $baseUri) {
             try {
                 \MailBlaze\Transactional\Client::create(
-                    'mb-secret-key-1112',
+                    'mb-test-key',
                     baseUri: $baseUri,
                     httpClient: $this->http,
                     requestFactory: $this->factory,
@@ -688,7 +688,7 @@ final class ClientTest extends SdkTestCase
     public function testTheBaseUriAcceptsLoopbackHttps(): void
     {
         $client = \MailBlaze\Transactional\Client::create(
-            'mb-secret-key-1112',
+            'mb-test-key',
             baseUri: 'https://127.0.0.1/api',
             httpClient: $this->http,
             requestFactory: $this->factory,
@@ -713,7 +713,7 @@ final class ClientTest extends SdkTestCase
         $this->expectException(ConfigurationException::class);
         $this->expectExceptionMessage('allow_redirects');
         \MailBlaze\Transactional\Client::create(
-            'mb-secret-key-1112',
+            'mb-test-key',
             httpClient: $guzzle,
             requestFactory: $this->factory,
             streamFactory: $this->factory,
@@ -736,7 +736,7 @@ final class ClientTest extends SdkTestCase
         ]));
 
         $client = \MailBlaze\Transactional\Client::create(
-            'mb-secret-key-1112',
+            'mb-test-key',
             baseUri: 'http://[::1]:8080/api',
             allowHttp: true,
             httpClient: $this->http,
@@ -754,7 +754,7 @@ final class ClientTest extends SdkTestCase
     public function testANonPsrClientErrorDoesNotLeakTheApiKey(): void
     {
         $client = \MailBlaze\Transactional\Client::create(
-            'mb-secret-key-1112',
+            'mb-test-key',
             httpClient: new KeyLeakingClient(),
             requestFactory: $this->factory,
             streamFactory: $this->factory,
@@ -771,13 +771,13 @@ final class ClientTest extends SdkTestCase
             self::assertSame('TypeError: header [redacted]', $previous->getMessage());
             $rendered = $exception->getMessage() . $exception->getTraceAsString() . var_export($exception, true)
                 . (string) $exception . $previous->getTraceAsString() . (string) $previous;
-            self::assertStringNotContainsString('mb-secret-key-1112', $rendered);
+            self::assertStringNotContainsString('mb-test-key', $rendered);
         }
     }
 
     public function testACustomResponseStatusAccessorDoesNotLeakTheApiKey(): void
     {
-        $this->http->addResponse(new StatusLeakingResponse('mb-secret-key-1112'));
+        $this->http->addResponse(new StatusLeakingResponse('mb-test-key'));
 
         try {
             $this->client()->emails()->send(EmailBuilder::receipt());
@@ -786,7 +786,7 @@ final class ClientTest extends SdkTestCase
             self::assertSame(TransportException::REASON_RESPONSE, $exception->reason());
             self::assertInstanceOf(RedactedException::class, $exception->getPrevious());
             $rendered = $exception->getMessage() . $exception->getTraceAsString() . var_export($exception, true);
-            self::assertStringNotContainsString('mb-secret-key-1112', $rendered);
+            self::assertStringNotContainsString('mb-test-key', $rendered);
         }
         self::assertCount(1, $this->http->getRequests());
     }
@@ -1079,7 +1079,7 @@ final class ClientTest extends SdkTestCase
 
     public function testAThrowingHeaderAccessorDoesNotLeakTheApiKey(): void
     {
-        $this->http->addResponse(new HeaderLeakingResponse('mb-secret-key-1112', 401));
+        $this->http->addResponse(new HeaderLeakingResponse('mb-test-key', 401));
 
         try {
             $this->client()->emails()->list();
@@ -1087,7 +1087,7 @@ final class ClientTest extends SdkTestCase
         } catch (\MailBlaze\Transactional\Exception\MailBlazeException $exception) {
             self::assertNull($exception->getPrevious());
             $rendered = $exception->getMessage() . $exception->getTraceAsString() . var_export($exception, true);
-            self::assertStringNotContainsString('mb-secret-key-1112', $rendered);
+            self::assertStringNotContainsString('mb-test-key', $rendered);
         }
         self::assertCount(1, $this->http->getRequests());
     }
@@ -1177,7 +1177,7 @@ final class ClientTest extends SdkTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectException(ConfigurationException::class);
         \MailBlaze\Transactional\Client::create(
-            'mb-secret-key-1112',
+            'mb-test-key',
             timeout: \NAN,
             httpClient: $this->http,
             requestFactory: $this->factory,

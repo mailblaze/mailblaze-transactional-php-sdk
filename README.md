@@ -86,7 +86,7 @@ The builder throws `ValidationException` before any request when:
 - HTML, plain text, the subject, names, the category, merge-tag values, or an attachment filename is not valid UTF-8.
 - A subject, name, category, or template id contains a line break, a control character, a bidirectional override, or an invisible character. Direction marks used in Hebrew and Arabic, and zero-width joiners, are allowed. The SDK does not limit subject length.
 - An attachment filename includes a path (`/` or `\`), a line break or other control character, or a hidden or formatting character (including direction marks), or is longer than 255 bytes.
-- An email address fails `FILTER_VALIDATE_EMAIL`, or contains a comma, semicolon, or angle bracket. `cc` and `bcc` are one comma-separated string. A quoted local part such as `"jane"@example.com` is accepted. Non-ASCII local parts are rejected. Write a non-ASCII domain in punycode, for example `jane@xn--exmple-cua.com`.
+- An email address fails `FILTER_VALIDATE_EMAIL`, or contains a comma, semicolon, or angle bracket. `cc` and `bcc` are one comma-separated string. A quoted local part such as `"jane"@example.com` is accepted. Non-ASCII local parts are rejected. Write a non-ASCII domain in punycode, for example `jane@xn--exmple-cua.example`.
 
 ## Send a template
 

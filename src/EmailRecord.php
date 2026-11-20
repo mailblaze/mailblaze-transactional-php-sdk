@@ -103,9 +103,9 @@ final class EmailRecord
     /**
      * send_at as a DateTimeImmutable, or null when it is missing or in a format the SDK does not recognise.
      *
-     * The API returns send_at without a UTC offset, for example "2026-11-16 2:36:59 PM". In testing
-     * that clock time was UTC, so a value without an offset is read in UTC unless you pass another
-     * timezone. A value with an offset, or a Unix timestamp, keeps its own instant.
+     * The API returns send_at without a UTC offset, for example "2026-11-16 2:36:59 PM".
+     * A value without an offset is read in UTC unless you pass another timezone.
+     * A value with an offset, or a Unix timestamp, keeps its own instant.
      */
     public function sendAtDateTime(?\DateTimeZone $assumedTimezone = null): ?\DateTimeImmutable
     {

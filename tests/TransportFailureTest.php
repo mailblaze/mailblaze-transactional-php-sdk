@@ -31,7 +31,7 @@ final class TransportFailureTest extends SdkTestCase
             self::assertSame($failure::class, $previous->originalClass());
             self::assertStringContainsString('[redacted]', $previous->getMessage());
             $rendered = (string) $exception . var_export($exception, true) . print_r($exception, true) . serialize($exception);
-            self::assertStringNotContainsString('mb-secret-key-1112', $rendered);
+            self::assertStringNotContainsString('mb-test-key', $rendered);
         }
     }
 
@@ -40,7 +40,7 @@ final class TransportFailureTest extends SdkTestCase
      */
     public static function failures(): iterable
     {
-        $key = 'mb-secret-key-1112';
+        $key = 'mb-test-key';
 
         yield 'curl timeout' => [new NetworkFailure('cURL error 28: Operation timed out after 1000 milliseconds (key ' . $key . ')'), TransportException::REASON_TIMEOUT];
         yield 'symfony idle timeout' => [new NetworkFailure('Idle timeout reached for "https://control.mailblaze.com/api" ' . $key), TransportException::REASON_TIMEOUT];
@@ -54,7 +54,7 @@ final class TransportFailureTest extends SdkTestCase
 
     public function testALongClientMessageIsCapped(): void
     {
-        $this->http->addException(new NetworkFailure(str_repeat('x', 2000) . 'mb-secret-key-1112'));
+        $this->http->addException(new NetworkFailure(str_repeat('x', 2000) . 'mb-test-key'));
 
         try {
             $this->client(getRetryLimit: 0)->emails()->list();
@@ -177,12 +177,12 @@ final class TransportFailureTest extends SdkTestCase
         $cases = [
             'empty key' => fn(): Client => $this->client(''),
             'malformed key' => fn(): Client => $this->client("key\n"),
-            'bad base uri' => fn(): Client => Client::create('mb-secret-key-1112', baseUri: 'ftp://example.com', httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory),
-            'private ip' => fn(): Client => Client::create('mb-secret-key-1112', baseUri: 'https://10.0.0.1', httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory),
-            'credentials' => fn(): Client => Client::create('mb-secret-key-1112', baseUri: 'https://user:pass@example.com', httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory),
-            'timeout' => fn(): Client => Client::create('mb-secret-key-1112', timeout: 0, httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory),
-            'retries' => fn(): Client => Client::create('mb-secret-key-1112', getRetryLimit: 9, httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory),
-            'insecure with injected client' => fn(): Client => Client::create('mb-secret-key-1112', allowInsecureTls: true, httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory),
+            'bad base uri' => fn(): Client => Client::create('mb-test-key', baseUri: 'ftp://example.com', httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory),
+            'private ip' => fn(): Client => Client::create('mb-test-key', baseUri: 'https://10.0.0.1', httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory),
+            'credentials' => fn(): Client => Client::create('mb-test-key', baseUri: 'https://user:pass@example.com', httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory),
+            'timeout' => fn(): Client => Client::create('mb-test-key', timeout: 0, httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory),
+            'retries' => fn(): Client => Client::create('mb-test-key', getRetryLimit: 9, httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory),
+            'insecure with injected client' => fn(): Client => Client::create('mb-test-key', allowInsecureTls: true, httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory),
         ];
 
         foreach ($cases as $name => $build) {
@@ -191,7 +191,7 @@ final class TransportFailureTest extends SdkTestCase
                 self::fail('Expected a ConfigurationException: ' . $name);
             } catch (ConfigurationException $exception) {
                 self::assertInstanceOf(\InvalidArgumentException::class, $exception, $name);
-                self::assertStringNotContainsString('mb-secret-key-1112', $exception->getMessage() . $exception->getTraceAsString() . var_export($exception, true), $name);
+                self::assertStringNotContainsString('mb-test-key', $exception->getMessage() . $exception->getTraceAsString() . var_export($exception, true), $name);
             }
         }
         self::assertSame([], $this->http->getRequests());
@@ -200,7 +200,7 @@ final class TransportFailureTest extends SdkTestCase
     public function testAPublicHostnameEndingInLettersIsStillAccepted(): void
     {
         foreach (['https://control.mailblaze.com/api', 'https://api.example.co.za/v1', 'https://8.8.8.8/api', 'https://a1.b2.example/api'] as $baseUri) {
-            $client = Client::create('mb-secret-key-1112', baseUri: $baseUri, httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory);
+            $client = Client::create('mb-test-key', baseUri: $baseUri, httpClient: $this->http, requestFactory: $this->factory, streamFactory: $this->factory);
             self::assertInstanceOf(Client::class, $client);
         }
     }

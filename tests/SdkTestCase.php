@@ -26,7 +26,7 @@ abstract class SdkTestCase extends TestCase
     }
 
     protected function client(
-        string $apiKey = 'mb-secret-key-1112',
+        string $apiKey = 'mb-test-key',
         ?LoggerInterface $logger = null,
         int $getRetryLimit = 2,
     ): Client {

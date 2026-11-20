@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Mail Blaze Transactional API
   version: "1.0.0"
-  summary: Transactional email methods implemented by TransactionalController.
+  summary: Transactional email methods.
   description: >
     JSON requests must use Content-Type application/json with no charset parameter.
     body, plain_text, and attachment data are strict base64. The attachment size
@@ -195,7 +195,7 @@ components:
           type: string
         send_at:
           type: string
-          description: Clock time. The SDK sends Y-m-d\TH:i:sP so the offset is explicit. A value with no offset is interpreted in the customer timezone.
+          description: Clock time. The SDK sends Y-m-d\TH:i:sP so the offset is explicit. A value with no offset is interpreted in the customer account timezone.
           examples: ["2026-11-11T15:04:05+08:00"]
         attachments:
           type: array

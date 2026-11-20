@@ -11,7 +11,7 @@ final class RedactionTest extends SdkTestCase
 {
     public function testExceptionTextDoesNotContainTheApiKey(): void
     {
-        $apiKey = 'mb-secret-key-1112';
+        $apiKey = 'mb-test-key';
         $this->http->addResponse($this->jsonResponse(403, [
             'status' => 'error',
             'code' => '150.001',
@@ -37,7 +37,7 @@ final class RedactionTest extends SdkTestCase
 
     public function testVarExportDoesNotContainTheApiKey(): void
     {
-        $apiKey = 'mb-secret-key-1112';
+        $apiKey = 'mb-test-key';
         $client = $this->client($apiKey, new ArrayLogger());
         self::assertStringNotContainsString($apiKey, var_export($client, true));
 
@@ -58,7 +58,7 @@ final class RedactionTest extends SdkTestCase
 
     public function testTheClientRefusesSerialization(): void
     {
-        $apiKey = 'mb-secret-key-1112';
+        $apiKey = 'mb-test-key';
         $client = $this->client($apiKey);
 
         try {
@@ -100,7 +100,7 @@ final class RedactionTest extends SdkTestCase
 
     public function testAReflectedApiKeyIsNotStoredAsTheErrorCode(): void
     {
-        $apiKey = 'mb-secret-key-1112';
+        $apiKey = 'mb-test-key';
         $this->http->addResponse($this->jsonResponse(400, [
             'status' => 'error',
             'code' => $apiKey,
@@ -121,7 +121,7 @@ final class RedactionTest extends SdkTestCase
 
     public function testRedactorReplacesTheSecretAndItsUrlEncoding(): void
     {
-        $secret = 'mb-secret-key-1112';
+        $secret = 'mb-test-key';
         $encoded = rawurlencode($secret);
 
         self::assertSame(

@@ -54,6 +54,20 @@
             "php-http/discovery": true
         }
     },
+    "archive": {
+        "exclude": [
+            "/vendor",
+            "/composer.lock",
+            "/tests",
+            "/.github",
+            "/.php-cs-fixer.dist.php",
+            "/.php-cs-fixer.cache",
+            "/.phpunit.cache",
+            "/.phpstan.cache",
+            "/phpstan.neon",
+            "/phpunit.xml.dist"
+        ]
+    },
     "scripts": {
         "test": "phpunit",
         "stan": "phpstan analyse --no-progress",

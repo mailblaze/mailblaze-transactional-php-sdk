@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-20
+
+### Changed
+
+- `composer archive` omits `vendor/`, `composer.lock`, and the local PHPUnit, PHPStan, and PHP CS Fixer caches. The published git tree already omitted them.
+- Public documentation uses reserved example mailbox domains and removes development-only provenance. SDK behaviour is unchanged.
+
 ## [0.2.2] - 2026-11-17
 
 ### Changed
@@ -60,7 +67,7 @@ This version has breaking changes, marked **BREAKING** below. The README has the
 - **BREAKING:** Base URIs whose host is a numeric IP address in a non-standard notation, such as `0x7f.1`, `2130706433`, or `127.1`, are rejected.
 - `list()` clamps `perPage` to 10–50, the range the API returns, instead of sending any value. A smaller value requests 10 records and a larger value requests 50. This matches what the API already returned.
 - `Client::VERSION`, and so the `User-Agent` header, is `0.2.0`.
-- README notes the live API limitations found in testing: `sendAt()` sends immediately, `cc()` and `replyTo()` are not applied, `bcc()` is unconfirmed, attachments are delivered as `text/plain`, and `attachments()` returns an empty list.
+- README described then-current observations of API behaviour for `sendAt()`, `cc()`, `replyTo()`, `bcc()`, and attachments. Those notes were later corrected in 0.2.2.
 - README documents that the IP-literal base URI check is best effort and that internationalised email addresses must use punycode.
 - `.gitattributes` and `.gitignore` are excluded from Composer package downloads.
 
@@ -87,7 +94,7 @@ This version has breaking changes, marked **BREAKING** below. The README has the
 
 ### Removed
 
-- Maintainer notes and the local control-panel example are no longer in the repository. `README.md`, `CHANGELOG.md`, `SECURITY.md`, and `docs/openapi.yaml` remain.
+- Maintainer-only notes and local examples were removed from the repository. `README.md`, `CHANGELOG.md`, `SECURITY.md`, and `docs/openapi.yaml` remain.
 
 ### Fixed
 
@@ -138,7 +145,8 @@ This version has breaking changes, marked **BREAKING** below. The README has the
 - Serialized exceptions omit the API key and the stack trace. The client cannot be serialized.
 - `var_export()` does not include the API key. The key is kept off the object.
 
-[Unreleased]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.2...HEAD
+[Unreleased]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.3...HEAD
+[0.2.3]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.2...0.2.3
 [0.2.2]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.1.1...0.2.0
