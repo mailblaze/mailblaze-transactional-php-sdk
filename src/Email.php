@@ -301,13 +301,7 @@ final class Email
 
     private static function headerValue(string $value, string $label): string
     {
-        self::assertUtf8($value, $label);
-        if (preg_match('/[\r\n]|\x{85}|\x{2028}|\x{2029}/u', $value) === 1) {
-            throw new ValidationException($label . ' must not contain line breaks');
-        }
-        if (preg_match('/\p{Cc}/u', $value) === 1) {
-            throw new ValidationException($label . ' must not contain control characters');
-        }
+        self::assertNoControlCharacters($value, $label);
         // Bidirectional embeddings, overrides, and isolates (U+202A-U+202E, U+2066-U+2069) and
         // invisible characters (U+200B, U+2060-U+2064, U+FEFF) can disguise a subject or name, for
         // example "invoice\u{202E}fdp.exe". The direction marks LRM (U+200E), RLM (U+200F), and
@@ -342,6 +336,21 @@ final class Email
         return $value;
     }
 
+    /**
+     * Rejects invalid UTF-8, line breaks (CR, LF, U+0085, U+2028, U+2029), and other C0 and C1
+     * control characters, including tab and DEL.
+     */
+    private static function assertNoControlCharacters(string $value, string $label): void
+    {
+        self::assertUtf8($value, $label);
+        if (preg_match('/[\r\n]|\x{85}|\x{2028}|\x{2029}/u', $value) === 1) {
+            throw new ValidationException($label . ' must not contain line breaks');
+        }
+        if (preg_match('/\p{Cc}/u', $value) === 1) {
+            throw new ValidationException($label . ' must not contain control characters');
+        }
+    }
+
     private static function assertUtf8(string $value, string $label): void
     {
         // preg_match() with /u returns false for invalid UTF-8, and does not need ext-mbstring.
@@ -361,8 +370,11 @@ final class Email
         if (is_int($value)) {
             return (string) $value;
         }
+        // A template can place a merge tag in a single-line field such as the subject, so values
+        // follow the same line break and control character rules as other header fields. Values
+        // are not trimmed.
         if (is_string($value)) {
-            self::assertUtf8($value, 'Merge tag value');
+            self::assertNoControlCharacters($value, 'Merge tag value');
 
             return $value;
         }
@@ -371,7 +383,7 @@ final class Email
         }
         if ($value instanceof \Stringable) {
             $string = (string) $value;
-            self::assertUtf8($string, 'Merge tag value');
+            self::assertNoControlCharacters($string, 'Merge tag value');
 
             return $string;
         }

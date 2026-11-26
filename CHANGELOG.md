@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-25
+
+### Fixed
+
+- README no longer states that `cc()` and `replyTo()` are not applied to the delivered message. Cc, Bcc, and Reply-To recipients are delivered as sent.
+
+### Security
+
+- `mergeTags()` rejects values that contain line breaks (CR, LF, U+0085, U+2028, U+2029) or other control characters (U+0000 to U+001F, including tab, and U+007F to U+009F) with a `ValidationException` before any request. A template can place a merge tag in a single-line field such as the subject. The messages are "Merge tag value must not contain line breaks" and "Merge tag value must not contain control characters". Unicode text, spaces, and empty values are still accepted and are not trimmed.
+
 ## [0.2.3] - 2026-11-20
 
 ### Changed
@@ -145,7 +155,8 @@ This version has breaking changes, marked **BREAKING** below. The README has the
 - Serialized exceptions omit the API key and the stack trace. The client cannot be serialized.
 - `var_export()` does not include the API key. The key is kept off the object.
 
-[Unreleased]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.3...HEAD
+[Unreleased]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.4...HEAD
+[0.2.4]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.3...0.2.4
 [0.2.3]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.2...0.2.3
 [0.2.2]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/mailblaze/mailblaze-transactional-php-sdk/compare/0.2.0...0.2.1

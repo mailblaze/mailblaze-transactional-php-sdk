@@ -85,12 +85,15 @@ The builder throws `ValidationException` before any request when:
 
 - HTML, plain text, the subject, names, the category, merge-tag values, or an attachment filename is not valid UTF-8.
 - A subject, name, category, or template id contains a line break, a control character, a bidirectional override, or an invisible character. Direction marks used in Hebrew and Arabic, and zero-width joiners, are allowed. The SDK does not limit subject length.
+- A merge-tag value contains a line break or another control character, including tab.
 - An attachment filename includes a path (`/` or `\`), a line break or other control character, or a hidden or formatting character (including direction marks), or is longer than 255 bytes.
 - An email address fails `FILTER_VALIDATE_EMAIL`, or contains a comma, semicolon, or angle bracket. `cc` and `bcc` are one comma-separated string. A quoted local part such as `"jane"@example.com` is accepted. Non-ASCII local parts are rejected. Write a non-ASCII domain in punycode, for example `jane@xn--exmple-cua.example`.
 
 ## Send a template
 
 `templateId()` cannot be combined with `html()` or `text()`. Attachments can be included with either a template or HTML. Merge tag names must match `[A-Z0-9_]`. `MAILBLAZE_PREHEADER` sets the preheader.
+
+A template can put a merge tag in a single-line field such as the subject, so merge-tag values cannot contain line breaks, tabs, or other control characters. Unicode text, spaces, and empty values are allowed, and values are sent without trimming. Put line breaks for the body in the template, or pass HTML such as `<br>` in the value.
 
 ```php
 $result = $client->emails()->send(
@@ -104,8 +107,6 @@ $result = $client->emails()->send(
 ```
 
 ## Attachments, copies, and scheduling
-
-> **Known limitation:** The Mail Blaze API does not currently apply `cc()` or `replyTo()` to the delivered message. The SDK sends these fields as [docs/openapi.yaml](docs/openapi.yaml) describes.
 
 `bcc()` recipients receive the email, and their addresses are not shown to the other recipients.
 

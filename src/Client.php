@@ -13,7 +13,7 @@ use Psr\Log\LoggerInterface;
 
 final class Client
 {
-    public const VERSION = '0.2.3';
+    public const VERSION = '0.2.4';
 
     public const DEFAULT_BASE_URI = 'https://control.mailblaze.com/api';
 
